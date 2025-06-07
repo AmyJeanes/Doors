@@ -190,13 +190,6 @@ if SERVER then
             return p:CallHook("ShouldTeleportPortal",portal,ent)
         end
     end)
-    
-    hook.Add("wp-teleport","doors-portals",function(portal,ent)
-        local p=portal:GetParent()
-        if IsValid(p) and (p.DoorInterior or p.DoorExterior) and p._init then
-            return p:CallHook("PostTeleportPortal",portal,ent)
-        end
-    end)
 else
     ENT:AddHook("Initialize","interior",function(self)
         self.contains = {}
@@ -310,5 +303,12 @@ hook.Add("wp-tracefilter", "doors-portals", function(portal)
     local p=portal:GetParent()
     if IsValid(p) and (p.DoorExterior or p.DoorInterior) and p._init then
         return p:CallHook("TraceFilterPortal",portal)
+    end
+end)
+
+hook.Add("wp-teleport","doors-portals",function(portal,ent)
+    local p=portal:GetParent()
+    if IsValid(p) and (p.DoorInterior or p.DoorExterior) and p._init then
+        return p:CallHook("PostTeleportPortal",portal,ent)
     end
 end)
