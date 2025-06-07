@@ -119,6 +119,10 @@ if CLIENT then
         self:UpdateCordon()
     end)
 
+    ENT:AddHook("PostTeleportPortal", "cordon", function(self,portal,ent)
+        self:UpdateCordon()
+    end)
+
     ENT:AddHook("PreRenderPortal", "cordon", function(self,portal)
         if portal ~= self.portals.interior then return end
         for k,v in pairs(self.props) do
