@@ -28,6 +28,7 @@ if SERVER then
         local targetframetime=1/30
         local nowhere
         local highest
+        local highest3d
         local start=SysTime()
         while tries>0 do
             tries=tries-1
@@ -41,13 +42,15 @@ if SERVER then
             td3d.start=nowhere
             if ((not highest) or (highest and nowhere.z>highest.z))
                 and (not util.TraceHull(td).Hit)
-                and (not isskycam or not util.TraceLine(td3d).Hit)
                 and (self:CallHook("AllowInteriorPos",nil,nowhere,mins,maxs)~=false)
             then
+                if isskycam and util.TraceLine(td3d).Hit then
+                    highest3d = nowhere
+                end
                 highest = nowhere
             end
         end
-        return highest
+        return highest3d or highest
     end
     
     ENT:AddHook("ShouldThinkFast","interior",function(self)
