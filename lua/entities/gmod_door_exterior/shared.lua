@@ -76,5 +76,8 @@ function ENT:OnRemove(fullUpdate)
         return -- https://wiki.facepunch.com/gmod/ENTITY:OnRemove#clientsidebehaviourremarks
     end
     self:CallHook("PreOnRemove")
+    if IsValid(self.interior) then
+        self.interior:CallHook("PreOnRemove")
+    end
     self:CallHook("OnRemove")
 end
