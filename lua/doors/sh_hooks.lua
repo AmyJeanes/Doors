@@ -33,4 +33,11 @@ else
             end
         end
     end)
+    hook.Add("PreDrawTranslucentRenderables", "doors-i", function()
+        for k,v in pairs(Doors:GetInteriors()) do
+            if IsValid(k) then
+                k:CallHook("PreDrawTranslucentRenderables")
+            end
+        end
+    end)
 end
