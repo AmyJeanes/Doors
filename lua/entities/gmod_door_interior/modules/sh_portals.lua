@@ -343,9 +343,9 @@ hook.Add("wp-tracefilter", "doors-portals", function(portal)
     end
 end)
 
-hook.Add("wp-teleport","doors-portals",function(portal,ent)
+hook.Add("wp-teleport","doors-portals",function(portal,ent,newpos,newang)
     local p=portal:GetParent()
     if IsValid(p) and (p.DoorInterior or p.DoorExterior) and p._init then
-        return p:CallHook("PostTeleportPortal",portal,ent)
+        return p:CallHook("PostTeleportPortal",portal,ent,newpos,newang)
     end
 end)
