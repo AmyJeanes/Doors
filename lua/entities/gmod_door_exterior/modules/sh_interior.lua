@@ -14,7 +14,7 @@ if SERVER then
         td.output=tdret
         td.mins=e.mins or e:OBBMins()
         td.maxs=e.maxs or e:OBBMaxs()
-        td.mask = 33636363
+        td.mask=MASK_PLAYERSOLID
         local max=16384
         local tries=10000
         local targetframetime=1/30
