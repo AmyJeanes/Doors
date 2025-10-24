@@ -26,6 +26,13 @@ if SERVER then
         end
     end)
 else
+    hook.Add("PreDrawTranslucentRenderables", "doors-i", function()
+        for k,v in pairs(Doors:GetInteriors()) do
+            if IsValid(k) then
+                k:CallHook("PreDrawTranslucentRenderables")
+            end
+        end
+    end)
     hook.Add("PostDrawTranslucentRenderables", "doors-i", function()
         for k,v in pairs(Doors:GetInteriors()) do
             if IsValid(k) then

@@ -9,8 +9,7 @@ function ENT:PositionInside(pos)
     return false
 end
 
-function ENT:IsStuck(ply)
-    if ply:GetMoveType()==MOVETYPE_NOCLIP then return false end
+function ENT:GetStuckTrace(ply)
     local pos=ply:GetPos()
     local td={}
     td.start=pos
@@ -18,8 +17,45 @@ function ENT:IsStuck(ply)
     td.mins=ply:OBBMins()
     td.maxs=ply:OBBMaxs()
     td.filter={ply,unpack(self.stuckfilter)}
+    return td
+end
+
+function ENT:IsStuck(ply)
+    if ply:GetMoveType()==MOVETYPE_NOCLIP then return false end
+    local pos=ply:GetPos()
+    local td=self:GetStuckTrace(ply)
     local tr=util.TraceHull(td)
     return tr.Hit
+end
+
+function ENT:UnStick(ply, portal, exiting)
+    -- Find closest floor position within 10 units
+    local pos=ply:GetPos()
+    local td=self:GetStuckTrace(ply)
+    local oldmaxsz=td.maxs.z
+    td.maxs.z=td.mins.z -- Ignore head height for floor snap due to low ceilings
+    td.start = td.start + Vector(0,0,10)
+    local tr = util.TraceHull(td)
+    local newpos = tr.HitPos
+
+    -- Reset trace parameters to check if new position is valid
+    td.maxs.z=oldmaxsz
+    td.start=newpos
+    td.endpos=newpos
+
+    if newpos and not util.TraceHull(td).Hit then
+        -- New floor position is valid
+        ply:SetPos(newpos)
+    else
+        -- New floor position is invalid, use fallback
+        if exiting then
+            self.exterior:PlayerEnter(ply)
+            self.exterior:PlayerExit(ply)
+        else
+            self.exterior:PlayerExit(ply)
+            self.exterior:PlayerEnter(ply)
+        end
+    end
 end
 
 if SERVER then
@@ -30,8 +66,7 @@ if SERVER then
             self.exterior:PlayerExit(ply,true,IsValid(portal))
             if IsValid(portal) and portal==self.portals.interior and self:IsStuck(ply) then
                 --print("stuck out",self,ply,portal)
-                self.exterior:PlayerEnter(ply)
-                self.exterior:PlayerExit(ply)
+                self:UnStick(ply,portal,true)
             end
             if IsValid(portal) and IsValid(portal.interior) and portal.interior.DoorInterior then
                 portal.interior:CheckPlayer(ply)
@@ -41,8 +76,7 @@ if SERVER then
             self.exterior:PlayerEnter(ply,true)
             if IsValid(portal) and portal==self.portals.exterior and self:IsStuck(ply) then
                 --print("stuck in",self,ply,portal)
-                self.exterior:PlayerExit(ply)
-                self.exterior:PlayerEnter(ply)
+                self:UnStick(ply,portal,false)
             end
         end
     end

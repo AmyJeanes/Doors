@@ -59,6 +59,15 @@ if SERVER then
             self.portals.exterior:SetInverted(ext.inverted)
         end
 
+        if ext.model then
+            self.portals.exterior:SetModel(ext.model)
+        end
+
+        if ext.model_offset then
+            self.portals.exterior:SetModelPos(ext.model_offset.pos)
+            self.portals.exterior:SetModelAng(ext.model_offset.ang)
+        end
+
         self.portals.exterior.exterior = self.exterior
         self.portals.exterior.interior = self
         self.portals.exterior:Spawn()
@@ -90,6 +99,15 @@ if SERVER then
 
         if int.inverted then
             self.portals.interior:SetInverted(int.inverted)
+        end
+
+        if int.model then
+            self.portals.interior:SetModel(int.model)
+        end
+
+        if int.model_offset then
+            self.portals.interior:SetModelPos(int.model_offset.pos)
+            self.portals.interior:SetModelAng(int.model_offset.ang)
         end
 
         self.portals.interior.interior = self
@@ -133,6 +151,15 @@ if SERVER then
                     portals.entry:SetInverted(v.entry.inverted)
                 end
 
+                if v.entry.model then
+                    portals.entry:SetModel(v.entry.model)
+                end
+
+                if v.entry.model_offset then
+                    portals.entry:SetModelPos(v.entry.model_offset.pos)
+                    portals.entry:SetModelAng(v.entry.model_offset.ang)
+                end
+
                 portals.entry.exterior = self.exterior
                 portals.entry.interior = self
                 portals.entry.black = v.entry.black
@@ -167,6 +194,16 @@ if SERVER then
                 if v.exit.inverted then
                     portals.exit:SetInverted(v.exit.inverted)
                 end
+
+                if v.exit.model then
+                    portals.exit:SetModel(v.exit.model)
+                end
+
+                if v.exit.model_offset then
+                    portals.exit:SetModelPos(v.exit.model_offset.pos)
+                    portals.exit:SetModelAng(v.exit.model_offset.ang)
+                end
+
 
                 portals.exit.interior = self
                 portals.exit.exterior = self.exterior
@@ -306,9 +343,9 @@ hook.Add("wp-tracefilter", "doors-portals", function(portal)
     end
 end)
 
-hook.Add("wp-teleport","doors-portals",function(portal,ent)
+hook.Add("wp-teleport","doors-portals",function(portal,ent,newpos,newang)
     local p=portal:GetParent()
     if IsValid(p) and (p.DoorInterior or p.DoorExterior) and p._init then
-        return p:CallHook("PostTeleportPortal",portal,ent)
+        return p:CallHook("PostTeleportPortal",portal,ent,newpos,newang)
     end
 end)
