@@ -1,6 +1,6 @@
 -- Adds an interior
 
-
+CreateConVar("doors_interior_tries", 10000, {FCVAR_ARCHIVE, FCVAR_REPLICATED, FCVAR_NOTIFY}, "Doors - How many tries to find a valid interior placement")
 
 if SERVER then
     function ENT:FindPosition(e)
@@ -16,7 +16,7 @@ if SERVER then
         td.maxs=e.maxs or e:OBBMaxs()
         td.mask=MASK_PLAYERSOLID
         local max=16384
-        local tries=10000
+        local tries=GetConVar("doors_interior_tries"):GetInt()
         local targetframetime=1/30
         local nowhere
         local highest
