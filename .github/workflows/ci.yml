@@ -25,12 +25,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           path: ${{ github.repository }}
 
       - name: Checkout world-portals
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           repository: AmyJeanes/world-portals
           ref: dev
@@ -46,16 +46,8 @@ jobs:
         env:
           combined: ${{ github.workspace }}/combined
 
-      - name: Create gma file
-        run: |
-          wget -O /tmp/fastgmad.zip "https://github.com/WilliamVenner/fastgmad/releases/download/v0.2.0/fastgmad_linux.zip"
-          unzip /tmp/fastgmad.zip -d /tmp/fastgmad
-          chmod +x /tmp/fastgmad/fastgmad
-          mkdir -p /tmp/addon
-          /tmp/fastgmad/fastgmad create -folder . -out /tmp/addon/addon.gma
-        working-directory: ${{ github.workspace }}/combined
-
       - name: Set workshop addon id
+        id: workshop_id
         if: (github.event_name == 'push' && contains(fromJSON('["refs/heads/dev"]'), github.ref)) || github.event.inputs.publish == 'true'
         run: |
           if [[ "${{ github.event.inputs.addon }}" == "beta" || "${{ github.ref }}" == "refs/heads/dev" ]]; then
@@ -66,15 +58,15 @@ jobs:
           fi
 
           echo "Publishing to workshop ID $WORKSHOP_ID"
-          echo "WORKSHOP_ID=$WORKSHOP_ID" >> $GITHUB_ENV
+          echo "WORKSHOP_ID=$WORKSHOP_ID" >> $GITHUB_OUTPUT
 
-      - name: Publish to workshop
-        if: env.WORKSHOP_ID
-        run: |
-          docker run --rm \
-            -e STEAM_USER="${{ vars.STEAM_USERNAME }}" \
-            -e STEAM_PASSWORD="${{ secrets.STEAM_PASSWORD }}" \
-            --mount type=bind,source="/tmp/addon",target=/home/gmodws/upload \
-            aperturedevelopment/gmodws:latest \
-            upload ${{ env.WORKSHOP_ID }} addon.gma \
-            "${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+      - uses: AmyJeanes/gmod-upload@main
+        name: Publish to workshop
+        with:
+          id: ${{ steps.workshop_id.outputs.WORKSHOP_ID }}
+          changelog: "${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+          folder: ${{ github.workspace }}/combined
+          dry-run: ${{ steps.workshop_id.outputs.WORKSHOP_ID == '' }}
+        env:
+          STEAM_USERNAME: ${{ vars.STEAM_USERNAME }}
+          STEAM_PASSWORD: ${{ secrets.STEAM_PASSWORD }}

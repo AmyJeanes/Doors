@@ -102,13 +102,42 @@ if SERVER then
         end
     end)
 else
+    ENT:AddHook("Initialize", "handleplayers", function(self)
+        self.occupants=self.exterior.occupants -- Hooray for referenced tables
+    end)
+
     ENT:AddHook("ShouldDraw", "handleplayers", function(self)
         if (LocalPlayer().doori~=self) and not wp.drawing and not self.contains[LocalPlayer().door] then
             return false
         end
     end)
+
     ENT:AddHook("ShouldThink", "handleplayers", function(self)
         if LocalPlayer().doori~=self then
+            return false
+        end
+    end)
+
+    hook.Add("PrePlayerDraw", "doors-handleplayers", function(ply)
+        local int=ply.doori
+        if not IsValid(int) then return end
+        local localply=LocalPlayer()
+        local localplyinside=localply.doori==int
+        local drawingportal=wp.drawing and wp.drawingent==int.portals.exterior
+        local shoulddraw=int:CallHook("ShouldDrawPlayer", ply, localply)
+        if (not localplyinside or shoulddraw==false) and not drawingportal then
+            return true
+        end
+    end)
+
+    hook.Add("DrawPhysgunBeam", "doors-handleplayers", function(ply)
+        local int=ply.doori
+        if not IsValid(int) then return end
+        local localply=LocalPlayer()
+        local localplyinside=localply.doori==int
+        local drawingportal=wp.drawing and wp.drawingent==int.portals.exterior
+        local shoulddraw=int:CallHook("ShouldDrawPlayer", ply, localply)
+        if (not localplyinside or shoulddraw==false) and not drawingportal then
             return false
         end
     end)

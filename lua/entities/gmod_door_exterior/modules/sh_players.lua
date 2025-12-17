@@ -18,9 +18,10 @@ if SERVER then
         self.occupants[ply]=true
         net.Start("Doors-EnterExit")
             net.WriteBool(true)
+            net.WriteEntity(ply)
             net.WriteEntity(self)
             net.WriteEntity(self.interior)
-        net.Send(ply)
+        net.Broadcast()
         ply.door = self
         ply.doori = self.interior
         if IsValid(self.interior) then
@@ -97,9 +98,10 @@ if SERVER then
         self.occupants[ply]=nil
         net.Start("Doors-EnterExit")
             net.WriteBool(false)
+            net.WriteEntity(ply)
             net.WriteEntity(self)
             net.WriteEntity(self.interior)
-        net.Send(ply)
+        net.Broadcast()
         ply.door = nil
         ply.doori = nil
         if not notp and self.Fallback then
@@ -138,19 +140,34 @@ if SERVER then
             end
         end
     end)
+
+    ENT:AddHook("PlayerInitialize", "players", function(self)
+        net.WriteTable(self.occupants)
+    end)
 else
     net.Receive("Doors-EnterExit", function()
         local enter=net.ReadBool()
+        local ply=net.ReadEntity()
         local ext=net.ReadEntity()
         local int=net.ReadEntity()
+
+        if not IsValid(ply) then return end
         
         if enter then
-            LocalPlayer().door=ext
-            LocalPlayer().doori=int
+            ply.door=ext
+            ply.doori=int
+            if IsValid(ext) then
+                ext.occupants[ply]=true
+            end
         else
-            LocalPlayer().door=nil
-            LocalPlayer().doori=nil
+            ply.door=nil
+            ply.doori=nil
+            if IsValid(ext) then
+                ext.occupants[ply]=nil
+            end
         end
+
+        if ply~=LocalPlayer() then return end
         
         if IsValid(ext) and ext._init then
             if enter then
@@ -167,5 +184,9 @@ else
                 int:CallHook("PlayerExit")
             end
         end
+    end)
+
+    ENT:AddHook("PlayerInitialize", "players", function(self)
+        self.occupants = net.ReadTable()
     end)
 end
