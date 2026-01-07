@@ -34,8 +34,16 @@ if SERVER then
         -- Exterior Portal
         self.portals.exterior:SetWidth(ext.width)
         self.portals.exterior:SetHeight(ext.height)
-        self.portals.exterior:SetPos(self.exterior:LocalToWorld(ext.pos))
-        self.portals.exterior:SetAngles(self.exterior:LocalToWorldAngles(ext.ang))
+        if ext.posoffset then
+            self.portals.exterior:SetPos(self.exterior:LocalToWorld(ext.pos + ext.posoffset))
+        else
+            self.portals.exterior:SetPos(self.exterior:LocalToWorld(ext.pos))
+        end
+        if ext.angoffset then
+            self.portals.exterior:SetAngles(self.exterior:LocalToWorldAngles(ext.ang + ext.angoffset))
+        else
+            self.portals.exterior:SetAngles(self.exterior:LocalToWorldAngles(ext.ang))
+        end
         self.portals.exterior:SetExit(self.portals.interior)
         self.portals.exterior:SetParent(self.exterior)
 
@@ -76,8 +84,16 @@ if SERVER then
         -- interior Portal
         self.portals.interior:SetWidth(int.width)
         self.portals.interior:SetHeight(int.height)
-        self.portals.interior:SetPos(self:LocalToWorld(int.pos))
-        self.portals.interior:SetAngles(self:LocalToWorldAngles(int.ang))
+        if int.posoffset then
+            self.portals.interior:SetPos(self.interior:LocalToWorld(int.pos + int.posoffset))
+        else
+            self.portals.interior:SetPos(self.interior:LocalToWorld(int.pos))
+        end
+        if int.angoffset then
+            self.portals.interior:SetAngles(self:LocalToWorldAngles(int.ang + int.angoffset))
+        else
+            self.portals.interior:SetAngles(self:LocalToWorldAngles(int.ang))
+        end
         self.portals.interior:SetExit(self.portals.exterior)
         self.portals.interior:SetParent(self)
 
