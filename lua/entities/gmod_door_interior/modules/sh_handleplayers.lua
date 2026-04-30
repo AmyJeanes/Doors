@@ -17,12 +17,11 @@ function ENT:GetStuckTrace(ply)
     td.mins=ply:OBBMins()
     td.maxs=ply:OBBMaxs()
     td.filter={ply,unpack(self.stuckfilter)}
-    return td
+    return td --[[@as HullTrace]]
 end
 
 function ENT:IsStuck(ply)
     if ply:GetMoveType()==MOVETYPE_NOCLIP then return false end
-    local pos=ply:GetPos()
     local td=self:GetStuckTrace(ply)
     local tr=util.TraceHull(td)
     return tr.Hit
@@ -30,7 +29,6 @@ end
 
 function ENT:UnStick(ply, portal, exiting)
     -- Find closest floor position within 10 units
-    local pos=ply:GetPos()
     local td=self:GetStuckTrace(ply)
     local oldmaxsz=td.maxs.z
     td.maxs.z=td.mins.z -- Ignore head height for floor snap due to low ceilings
@@ -83,7 +81,7 @@ if SERVER then
     
     ENT:AddHook("Think", "handleplayers", function(self)
         if not self._init then return end
-        for k,v in pairs(player.GetAll()) do
+        for _,v in pairs(player.GetAll()) do
             self:CheckPlayer(v)
         end
     end)
@@ -96,7 +94,7 @@ if SERVER then
     
     hook.Add("wp-teleport","doors-handleplayers",function(portal,ent)
         if ent:IsPlayer() then
-            for k,v in pairs(Doors:GetInteriors()) do
+            for k in pairs(Doors:GetInteriors()) do
                 k:CheckPlayer(ent,portal)
             end
         end

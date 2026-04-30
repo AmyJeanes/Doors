@@ -31,7 +31,7 @@ if SERVER then
             td.start=nowhere
             td.endpos=nowhere
             if ((not highest) or (highest and nowhere.z>highest.z))
-                and (not util.TraceHull(td).Hit)
+                and (not util.TraceHull(td --[[@as HullTrace]]).Hit)
                 and (self:CallHook("AllowInteriorPos",nil,nowhere,mins,maxs)~=false)
             then
                 highest = nowhere
@@ -109,7 +109,7 @@ if SERVER then
     end)
     
     ENT:AddHook("OnRemove", "interior", function(self)
-        for k,v in pairs(self.occupants) do
+        for k in pairs(self.occupants) do
             self:PlayerExit(k,true)
             for int in pairs(Doors:GetInteriors()) do
                 int:CheckPlayer(k)
@@ -119,7 +119,7 @@ if SERVER then
 else
     ENT:AddHook("SlowThink","interior",function(self)
         local inside
-        for k,v in pairs(Doors:GetInteriors()) do
+        for k in pairs(Doors:GetInteriors()) do
             if k:PositionInside(self:GetPos()) then
                 inside=k
                 break
@@ -142,7 +142,7 @@ else
     end)
     
     ENT:AddHook("OnRemove","interior",function(self)
-        for k,v in pairs(Doors:GetInteriors()) do
+        for k in pairs(Doors:GetInteriors()) do
             if k.contains and k.contains[self] then
                 k.contains[self] = nil
             end

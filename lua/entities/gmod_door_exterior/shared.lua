@@ -1,3 +1,6 @@
+---@class gmod_door_exterior
+---@field Model string
+
 ENT.Type = "anim"
 if WireLib then
     ENT.Base            = "base_wire_entity"
@@ -28,7 +31,7 @@ end
 function ENT:CallHook(name,...)
     if not hooks[name] then return end
     local a,b,c,d,e,f
-    for k,v in pairs(hooks[name]) do
+    for _,v in pairs(hooks[name]) do
         a,b,c,d,e,f = v(self,...)
         if a ~= nil then
             return a,b,c,d,e,f

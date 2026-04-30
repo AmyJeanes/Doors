@@ -27,7 +27,6 @@ if SERVER then
         if IsValid(self.interior) then
             local portals=self.interior.portals
             if (not notp) and portals and self.interior.Fallback then
-                local pos=self:WorldToLocal(ply:GetPos())
                 local newpos = self.interior:LocalToWorld(self.interior.Fallback.pos)
                 local height = ply:OBBMaxs().z
                 local temppos = Vector(0,0,height)
@@ -62,7 +61,7 @@ if SERVER then
             local hp,armor=ply:Health(),ply:Armor()
             local weps={}
             local ammo={}
-            for k,v in pairs(ply:GetWeapons()) do
+            for _,v in pairs(ply:GetWeapons()) do
                 table.insert(weps, v:GetClass())
                 local p=v:GetPrimaryAmmoType()
                 local s=v:GetSecondaryAmmoType()
@@ -83,14 +82,14 @@ if SERVER then
             ply:SetEyeAngles(ang)
             ply:SetHealth(hp)
             ply:SetArmor(armor)
-            for k,v in pairs(weps) do
+            for _,v in pairs(weps) do
                 ply:Give(tostring(v))
             end
             for k,v in pairs(ammo) do
                 ply:SetAmmo(v,k)
             end
             if activewep then
-                ply:SelectWeapon(ply:GetWeapon(activewep))
+                ply:SelectWeapon(activewep)
             end
             ply.doors_cooldowncur=CurTime()+1
         end
@@ -134,7 +133,7 @@ if SERVER then
     end)
 
     ENT:AddHook("Think", "players", function(self)
-        for k,v in pairs(self.occupants) do
+        for k in pairs(self.occupants) do
             if not IsValid(self.interior) then
                 k:SetPos(self:GetPos())
             end

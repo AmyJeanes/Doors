@@ -249,7 +249,7 @@ else
         if net.ReadBool() then
             self.customportals={}
             local count=net.ReadInt(8)
-            for i=1,count do
+            for _=1,count do
                 local k=net.ReadString()
                 self.customportals[k]={}
                 local portals = self.customportals[k]

@@ -69,7 +69,7 @@ end
 
 ENT:AddHook("PostInitialize","interior",function(self)
     if self.initqueue then
-        for k,v in pairs(self.initqueue) do
+        for k in pairs(self.initqueue) do
             self:InitializePlayer(k)
         end
         self.initqueue=nil
@@ -77,7 +77,7 @@ ENT:AddHook("PostInitialize","interior",function(self)
 end)
 
 function ENT:Think()
-    for k,v in pairs(self.occupants) do
+    for k in pairs(self.occupants) do
         if not k or not IsValid(k) then
             self.occupants[k]=nil
         end

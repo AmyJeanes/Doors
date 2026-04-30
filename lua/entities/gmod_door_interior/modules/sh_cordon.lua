@@ -1,5 +1,8 @@
 -- Cordon
 
+---@class gmod_door_interior
+---@field props table<Entity, boolean|integer>
+
 ENT:AddHook("Initialize", "cordon", function(self)
     self.props={}
     self.propscan=0
@@ -18,7 +21,7 @@ ENT:AddHook("Cordon", "cordon", function(self,class,ent)
 end)
 
 function ENT:UpdateCordon()
-    for k,v in pairs(ents.FindInBox(self:LocalToWorld(self.mins),self:LocalToWorld(self.maxs))) do
+    for _,v in pairs(ents.FindInBox(self:LocalToWorld(self.mins),self:LocalToWorld(self.maxs))) do
         local check=true
         local class=v:GetClass()
         if blacklist[class] or self:CallHook("Cordon",class,v)==false then
@@ -26,8 +29,8 @@ function ENT:UpdateCordon()
         end
         local p=v:GetParent()
         if IsValid(p) then
-            local class=p:GetClass()
-            if blacklist[class] or self:CallHook("Cordon",class,p)==false then
+            local pclass=p:GetClass()
+            if blacklist[pclass] or self:CallHook("Cordon",pclass,p)==false then
                 check=false
             end
         end
@@ -59,7 +62,7 @@ end
 if SERVER then
     ENT:AddHook("PostInitialize","cordon",function(self)
         self:UpdateCordon()
-        for k,v in pairs(self.props) do
+        for k in pairs(self.props) do
             if k.DoorsPhysicsFrozen then
                 k.DoorsPhysicsFrozen = false
                 local kph = k:GetPhysicsObject()
@@ -74,7 +77,7 @@ end
 ENT:AddHook("OnRemove", "cordon", function(self)
     if self.props then
         self:UpdateCordon()
-        for k,v in pairs(self.props) do
+        for k in pairs(self.props) do
             if IsValid(k) then
                 -- print("onremove",k)
                 if SERVER then
@@ -103,7 +106,7 @@ if CLIENT then
             self:UpdateCordon()
         end
         local inside=LocalPlayer().doori==self or self.contains[LocalPlayer().door] or false
-        for k,v in pairs(self.props) do
+        for k in pairs(self.props) do
             if IsValid(k) and k:GetNoDraw()==inside then
                 -- Need to do this every frame unfortunately as GMod resets it really fast
                 k:SetNoDraw(not inside)
@@ -125,7 +128,7 @@ if CLIENT then
 
     ENT:AddHook("PreRenderPortal", "cordon", function(self,portal)
         if portal ~= self.portals.interior then return end
-        for k,v in pairs(self.props) do
+        for k in pairs(self.props) do
             if IsValid(k) then
                 k.olddraw=k:GetNoDraw()
                 k:SetNoDraw(true)
@@ -135,7 +138,7 @@ if CLIENT then
 
     ENT:AddHook("PostRenderPortal", "cordon", function(self,portal)
         if portal ~= self.portals.interior then return end
-        for k,v in pairs(self.props) do
+        for k in pairs(self.props) do
             if IsValid(k) and k.olddraw~=nil then
                 k:SetNoDraw(k.olddraw)
                 k.olddraw=nil

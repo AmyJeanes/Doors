@@ -1,7 +1,7 @@
 -- Hooks
 
 if SERVER then
-    local meta=FindMetaTable("Entity")
+    local meta=assert(FindMetaTable("Entity"))
     meta.OldSetSkin=meta.OldSetSkin or meta.SetSkin
     function meta.SetSkin(ent,i,...)
         meta.OldSetSkin(ent,i,...)
@@ -27,14 +27,14 @@ if SERVER then
     end)
 else
     hook.Add("PreDrawTranslucentRenderables", "doors-i", function()
-        for k,v in pairs(Doors:GetInteriors()) do
+        for k in pairs(Doors:GetInteriors()) do
             if IsValid(k) then
                 k:CallHook("PreDrawTranslucentRenderables")
             end
         end
     end)
     hook.Add("PostDrawTranslucentRenderables", "doors-i", function()
-        for k,v in pairs(Doors:GetInteriors()) do
+        for k in pairs(Doors:GetInteriors()) do
             if IsValid(k) then
                 k:CallHook("PostDrawTranslucentRenderables")
             end

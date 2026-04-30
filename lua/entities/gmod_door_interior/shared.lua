@@ -1,9 +1,12 @@
+---@class gmod_door_interior
+---@field Model string
+
 ENT.Type = "anim"
 if WireLib then
     ENT.Base            = "base_wire_entity"
 else
     ENT.Base            = "base_gmodentity"
-end 
+end
 ENT.Author          = "Dr. Matt"
 ENT.RenderGroup     = RENDERGROUP_OPAQUE
 ENT.DoorInterior    = true
@@ -27,7 +30,7 @@ end
 function ENT:CallHook(name,...)
     if not hooks[name] then return end
     local a,b,c,d,e,f
-    for k,v in pairs(hooks[name]) do
+    for _,v in pairs(hooks[name]) do
         a,b,c,d,e,f = v(self,...)
         if a ~= nil then
             return a,b,c,d,e,f

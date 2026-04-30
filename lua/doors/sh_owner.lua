@@ -1,7 +1,7 @@
 -- Owner
 
 if CLIENT then
-    local meta=FindMetaTable("Entity")
+    local meta=assert(FindMetaTable("Entity"))
     if not meta.SetCreator and not meta.GetCreator then
         function meta:SetCreator(creator)
             self._creator=creator
@@ -19,7 +19,7 @@ function Doors:SetupOwner(ent,ply)
         ent:CPPISetOwner(ply)
     end
     if ent.parts then
-        for k,v in pairs(ent.parts) do
+        for _,v in pairs(ent.parts) do
             Doors:SetupOwner(v,ply)
         end
     end
