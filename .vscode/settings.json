@@ -1,0 +1,6 @@
+{
+    "[lua][glua]": {
+        "editor.insertSpaces": true,
+        "editor.indentSize": 4
+    }
+}

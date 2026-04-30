@@ -1,0 +1,16 @@
+{
+    "runtime": {
+        "version": "LuaJIT"
+    },
+    "workspace": {
+        "library": [
+            "./.tools/glua-api",
+            "./.luatypes",
+            "../world-portals",
+            "../wire"
+        ],
+        "ignoreGlobs": [
+            ".tools/*.zip"
+        ]
+    }
+}
