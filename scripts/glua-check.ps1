@@ -5,9 +5,10 @@
 #         pwsh -File scripts/glua-check.ps1 lua/doors
 # CI:     pwsh -File scripts/glua-check.ps1 -Sarif results.sarif
 
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Sarif,
-    [Parameter(ValueFromRemainingArguments = $true)]
+    [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
     [string[]]$Paths
 )
 
