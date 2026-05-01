@@ -102,9 +102,59 @@ if ($currentMark -ne $GluaApiVersion) {
 # from here, and the glua-lsp Claude Code plugin's shim resolves glua_ls
 # from each project's .tools/bin/ at LSP launch. Versioned dirs stay around
 # so switching versions is just a path change, not a re-download.
-New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-Copy-Item $gluaCheckExe (Join-Path $BinDir "glua_check$ExeExt") -Force
-Copy-Item $gluaLsExe    (Join-Path $BinDir "glua_ls$ExeExt"   ) -Force
+#
+# A .version marker keeps idempotent re-runs as no-ops — important because
+# Windows holds the glua_ls.exe file lock while the LSP server is running,
+# so an unconditional Copy-Item over the live binary fails.
+#
+# On a genuine version bump: Windows allows *renaming* a running .exe
+# (just not overwriting one). We capture any process using the old path
+# first, rename the live binary aside, copy the new one into place, then
+# kill the captured processes — LSP hosts treat the kill as a crash and
+# respawn against the new binary at the unchanged path.
+$BinMark      = Join-Path $BinDir '.version'
+$gluaCheckBin = Join-Path $BinDir "glua_check$ExeExt"
+$gluaLsBin    = Join-Path $BinDir "glua_ls$ExeExt"
+$currentMark  = if (Test-Path $BinMark) { (Get-Content $BinMark -Raw).Trim() } else { '' }
+
+# Sweep any .old left over from a prior update — Windows may not release
+# the file handle by the time our Wait-Process returns, so we retry on
+# every invocation (including idempotent no-ops) until the lock is gone.
+foreach ($target in @($gluaCheckBin, $gluaLsBin)) {
+    $old = "$target.old"
+    if (Test-Path $old) { Remove-Item $old -Force -ErrorAction SilentlyContinue }
+}
+
+if ($currentMark -ne $GluaLsVersion -or -not (Test-Path $gluaCheckBin) -or -not (Test-Path $gluaLsBin)) {
+    New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+
+    $toKill = @()
+    foreach ($target in @($gluaCheckBin, $gluaLsBin)) {
+        if (-not (Test-Path $target)) { continue }
+        $procName = [System.IO.Path]::GetFileNameWithoutExtension($target)
+        $toKill  += @(Get-Process -Name $procName -ErrorAction SilentlyContinue |
+                      Where-Object { $_.Path -eq $target })
+
+        $old = "$target.old"
+        if (Test-Path $old) { Remove-Item $old -Force -ErrorAction SilentlyContinue }
+        Move-Item $target $old -Force
+    }
+
+    Copy-Item $gluaCheckExe $gluaCheckBin -Force
+    Copy-Item $gluaLsExe    $gluaLsBin    -Force
+
+    foreach ($h in $toKill) {
+        Write-Host "  stopping $($h.ProcessName) (PID $($h.Id)) so the LSP host respawns it against the new binary"
+        Stop-Process -Id $h.Id -Force -ErrorAction SilentlyContinue
+        $h | Wait-Process -Timeout 5 -ErrorAction SilentlyContinue
+    }
+    foreach ($target in @($gluaCheckBin, $gluaLsBin)) {
+        $old = "$target.old"
+        if (Test-Path $old) { Remove-Item $old -Force -ErrorAction SilentlyContinue }
+    }
+
+    Set-Content -Path $BinMark -Value $GluaLsVersion
+}
 
 Write-Host ''
 Write-Host 'Tools ready:'
