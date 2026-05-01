@@ -130,7 +130,7 @@ There is intentionally **no `diagnostics.disable` block in `.luarc.json`** — e
 
 Diagnostics, hover, and jump-to-definition are provided via the [`glua-lsp` plugin](https://github.com/AmyJeanes/gmod-claude-plugins) (marketplace: `AmyJeanes/gmod-claude-plugins`). The plugin wraps the [`glua_ls`](https://github.com/Pollux12/gmod-glua-ls) language server — same EmmyLua-Analyzer-Rust engine as `glua_check`, just running long-lived. Diagnostics arrive automatically after every edit; no hook involvement.
 
-`.claude/settings.json` declares `extraKnownMarketplaces` so contributors get prompted to install the plugin on first open. The plugin itself ships only configuration — two per-machine pieces are still needed and are not in source control.
+`.claude/settings.json` declares `extraKnownMarketplaces` so contributors get prompted to install the plugin on first open. The plugin auto-resolves `glua_ls` from each project's `.tools/bin/` at LSP launch, so the binary is provided per-repo by `scripts/install-tools.ps1` rather than installed globally.
 
 #### First-time setup (do this before doing other work)
 
@@ -142,7 +142,7 @@ In a fresh clone, run it once before touching `.lua` files:
 pwsh -File scripts/install-tools.ps1
 ```
 
-It is idempotent — re-running is a no-op when the pinned versions are already present, so it's also the recovery path when LSP diagnostics look wrong. After running it the first time, add `.tools/bin/` to the PATH used by Claude Code (so the LSP can find `glua_ls`), then ask the user to run `/reload-plugins`.
+It is idempotent — re-running is a no-op when the pinned versions are already present, so it's also the recovery path when LSP diagnostics look wrong. After a fresh install just `/reload-plugins` so Claude Code re-launches the LSP against the new binary.
 
 To bump a version: edit the `$GluaLsVersion` / `$GluaApiVersion` constants in `scripts/install-tools.ps1`, commit, and CI + every fresh clone picks it up. Renovate (`.github/renovate.json` customManagers) also raises bump PRs automatically, gated by the GLua Check CI job.
 
