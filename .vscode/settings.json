@@ -2,5 +2,6 @@
     "[lua][glua]": {
         "editor.insertSpaces": true,
         "editor.indentSize": 4
-    }
+    },
+    "gluals.ls.executablePath": ".tools/bin/glua_ls"
 }
