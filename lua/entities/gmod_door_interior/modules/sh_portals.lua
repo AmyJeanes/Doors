@@ -2,8 +2,6 @@
 
 if SERVER then
 
-    util.AddNetworkString("FWTableSend")
-
     ENT:AddHook("PlayerInitialize", "portals", function(self)
         if self.portals then
             net.WriteEntity(self.portals.exterior)
@@ -217,21 +215,14 @@ if SERVER then
             end
         end
 
-        if self.FalseWorlds then
-            table.Merge(wp.falseworlds, self.FalseWorlds, true)
-            net.Start( "FWTableSend" )
-                net.WriteTable( wp.falseworlds )
-            net.Broadcast()
-        end
-
-        if self.FalseWorldPortals then
-            self.falseworldportals={}
-            for k,v in pairs(self.FalseWorldPortals) do
-                self.falseworldportals[k] = {}
-                local fworld = self.falseworldportals[k]
+        if self.FalseWorldWindows then
+            self.falseworldwindows={}
+            for k,v in pairs(self.FalseWorldWindows) do
+                self.falseworldwindows[k] = {}
+                local fworld = self.falseworldwindows[k]
                 fworld=ents.Create("linked_portal_door")
 
-                -- Fake World Portal
+                -- False World Window
                 fworld:SetWidth(v.width)
                 fworld:SetHeight(v.height)
                 fworld:SetPos(self:LocalToWorld(v.pos))
@@ -323,10 +314,6 @@ else
         end
     end)
     
-    net.Receive( "FWTableSend", function()
-        wp.falseworlds = net.ReadTable()
-    end )
-
     ENT:AddHook("ShouldDraw", "portals", function(self)
         local insideof = IsValid(wp.drawingent) and wp.drawingent.exterior and wp.drawingent.exterior.insideof==self and wp.drawingent.interior.portals.interior==wp.drawingent
         if wp.drawing and wp.drawingent==self.portals.interior and not (wp.drawingent==self.portals.interior and self.props[self.exterior]) and (not insideof) then
