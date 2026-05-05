@@ -218,9 +218,8 @@ if SERVER then
         if self.FalseWorldWindows then
             self.falseworldwindows={}
             for k,v in pairs(self.FalseWorldWindows) do
-                self.falseworldwindows[k] = {}
-                local fworld = self.falseworldwindows[k]
-                fworld=ents.Create("linked_portal_door")
+                local fworld = ents.Create("linked_portal_door")
+                self.falseworldwindows[k] = fworld
 
                 -- False World Window
                 fworld:SetWidth(v.width)
@@ -228,6 +227,14 @@ if SERVER then
                 fworld:SetPos(self:LocalToWorld(v.pos))
                 fworld:SetAngles(self:LocalToWorldAngles(v.ang))
                 fworld:SetParent(self)
+
+                if v.exit_point_offset then
+                    fworld:SetExitPosOffset(v.exit_point_offset.pos)
+                    fworld:SetExitAngOffset(v.exit_point_offset.ang)
+                elseif v.exit_point then
+                    fworld:SetExitPosOffset(v.exit_point.pos - v.pos)
+                    fworld:SetExitAngOffset(v.exit_point.ang - v.ang)
+                end
 
                 if v.thickness then
                     fworld:SetThickness(v.thickness)
