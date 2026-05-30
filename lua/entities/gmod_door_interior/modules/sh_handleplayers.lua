@@ -16,7 +16,25 @@ function ENT:GetStuckTrace(ply)
     td.endpos=pos
     td.mins=ply:OBBMins()
     td.maxs=ply:OBBMaxs()
-    td.filter={ply,unpack(self.stuckfilter)}
+    -- Build the stuck-trace filter from the server-side stuckfilter table (when
+    -- present) plus a shared StuckFilter hook. The hook lets consumers exclude
+    -- networked entities (e.g. TARDIS' interior door part) at trace time, so the
+    -- server and the predicting client build identical filter membership from
+    -- networked entities — required for the predicted unstick to land in the
+    -- same place on both realms. Order is irrelevant (a filter is a set);
+    -- CallHook returns the first non-nil result, so the owning consumer returns
+    -- the whole list.
+    local filter={ply}
+    for _,e in ipairs(self.stuckfilter or {}) do
+        filter[#filter+1]=e
+    end
+    local extra=self:CallHook("StuckFilter")
+    if extra then
+        for _,e in ipairs(extra) do
+            if IsValid(e) then filter[#filter+1]=e end
+        end
+    end
+    td.filter=filter
     return td --[[@as HullTrace]]
 end
 
@@ -27,7 +45,19 @@ function ENT:IsStuck(ply)
     return tr.Hit
 end
 
-function ENT:UnStick(ply, portal, exiting)
+-- Pure safe-position resolver for a player left stuck by a portal teleport.
+-- Position only (no ply:SetPos / eye writes), so it runs identically on the
+-- server and the predicting client: floor-snap within 10u, else the door's
+-- authored Fallback safe-spot. Returns nil when neither is available, in which
+-- case the caller leaves the player put and the server snapshot / NetworkOrigin
+-- mask covers any correction.
+--
+-- This replaces the old PlayerEnter+PlayerExit "bounce": that relocated via the
+-- full entry/exit path purely to reach the Fallback spot, which also did a
+-- server-side ply:SetEyeAngles (discarded under prediction, and the source of
+-- the spurious teleport eye-rotation) and re-fired every consumer entry/exit
+-- hook a redundant second time.
+function ENT:ResolveSafePos(ply, exiting)
     -- Find closest floor position within 10 units
     local td=self:GetStuckTrace(ply)
     local oldmaxsz=td.maxs.z
@@ -43,16 +73,12 @@ function ENT:UnStick(ply, portal, exiting)
 
     if newpos and not util.TraceHull(td).Hit then
         -- New floor position is valid
-        ply:SetPos(newpos)
-    else
-        -- New floor position is invalid, use fallback
-        if exiting then
-            self.exterior:PlayerEnter(ply)
-            self.exterior:PlayerExit(ply)
-        else
-            self.exterior:PlayerExit(ply)
-            self.exterior:PlayerEnter(ply)
-        end
+        return newpos
+    end
+
+    -- No clear floor: use the door's authored fallback safe-spot.
+    if IsValid(self.exterior) then
+        return self.exterior:ResolveFallbackPos(ply, exiting)
     end
 end
 
@@ -64,7 +90,8 @@ if SERVER then
             self.exterior:PlayerExit(ply,true,IsValid(portal))
             if IsValid(portal) and portal==self.portals.interior and self:IsStuck(ply) then
                 --print("stuck out",self,ply,portal)
-                self:UnStick(ply,portal,true)
+                local safe = self:ResolveSafePos(ply, true)
+                if safe then ply:SetPos(safe) end
             end
             if IsValid(portal) and IsValid(portal.interior) and portal.interior.DoorInterior then
                 portal.interior:CheckPlayer(ply)
@@ -74,7 +101,8 @@ if SERVER then
             self.exterior:PlayerEnter(ply,true)
             if IsValid(portal) and portal==self.portals.exterior and self:IsStuck(ply) then
                 --print("stuck in",self,ply,portal)
-                self:UnStick(ply,portal,false)
+                local safe = self:ResolveSafePos(ply, false)
+                if safe then ply:SetPos(safe) end
             end
         end
     end
@@ -138,6 +166,14 @@ if CLIENT then
         ent.doori = nil
         if IsValid(self.exterior) and self.exterior.occupants then
             self.exterior.occupants[ent] = nil
+        end
+        -- Predict the unstick the server runs in CheckPlayer, so the landing
+        -- matches and world-portals' mv re-sync keeps it (no rubberband).
+        -- Position only; ResolveSafePos is pure so this is deterministic and
+        -- idempotent. Degrades to server-authoritative if not stuck client-side.
+        if self:IsStuck(ent) then
+            local safe = self:ResolveSafePos(ent, true)
+            if safe then ent:SetPos(safe) end
         end
     end)
 

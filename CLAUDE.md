@@ -91,6 +91,14 @@ Entry path: `CanPlayerEnter` → record in `occupants` → broadcast `Doors-Ente
 
 Exit path mirrors it. The exit-without-interior branch does an ugly but necessary `Spectate(NONE) + Spawn() + restore weapons/ammo/health` because `Spectate` can't be left cleanly otherwise. Players exiting without an interior get a 1-second cooldown (`doors_cooldowncur`) to prevent immediate re-entry.
 
+The interior `Fallback` position math is shared via `gmod_door_exterior` `ENT:ResolveFallbackPos(ply, exiting)` (`sh_players.lua`) — a **pure** position-only resolver (`LocalToWorld(Fallback.pos)` + roll-lift, no eye/velocity writes, no hooks). `PlayerEnter`/`PlayerExit` source their fallback position from it but keep their own `SetEyeAngles`/`SetLocalVelocity` for the legacy-door Use callers.
+
+### Stuck handling / predicted unstick (`sh_handleplayers.lua`)
+
+After a portal teleport a player can land embedded in geometry. `CheckPlayer` (server, driven by the `wp-teleport` hook) detects this with `IsStuck` and repositions via `ENT:ResolveSafePos(ply, exiting)` — a **pure** resolver: floor-snap within 10u, else `exterior:ResolveFallbackPos`. It is position-only (no eye writes) so it runs identically on the server and the **predicting client**: the client mirrors it in the `PostTeleportPortal "predict"` hooks (exit on the interior, entry on the exterior), and world-portals re-syncs `mv` from `ply:GetPos()` after `wp-teleport` so the relocation survives gamemovement and matches the prediction (no rubberband). This replaced an older `PlayerEnter`+`PlayerExit` "bounce" that reached the same `Fallback` spot via the full entry/exit path — discarded once teleport moved into `SetupMove`, and the source of a spurious server-side eye-rotation.
+
+The stuck-trace filter is built in `GetStuckTrace` from the server-only `stuckfilter` table **plus** a shared `StuckFilter` hook (returns a table of networked entities to exclude — TARDIS contributes its interior door part). The hook is evaluated at trace time so server and client build identical filter membership from networked entities; a server-only addition (`stuckfilter`/non-networked entity) degrades the predicted unstick to a one-tick rubberband but never breaks. `StuckFilter` returns a value (not a veto), so the single owning consumer returns the whole list — don't register a second one that returns non-nil or it short-circuits the first.
+
 ### Other small but load-bearing pieces
 
 - `lua/doors/sh_hooks.lua` monkey-patches `Entity.SetSkin` and `Entity.SetBodygroup` to fire gamemode hooks `SkinChanged` / `BodygroupChanged`, which are then forwarded to door entities' per-entity hook chains.

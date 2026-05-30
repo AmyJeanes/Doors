@@ -1,8 +1,34 @@
 -- Handles players
 
+-- Pure position resolver for the door's authored Fallback safe-spot. Shared
+-- so the interior's predicted unstick (ResolveSafePos) can call it client-side
+-- too. Position only: no eye/velocity writes, no hooks. exiting=true -> the
+-- exterior fallback (this entity); exiting=false -> the interior fallback.
+-- Returns nil if the relevant entity / Fallback isn't available. The roll-lift
+-- keeps the eyeline level when the fallback frame is rolled (matches the
+-- PlayerEnter/PlayerExit math this was extracted from, and sh_teleport.lua).
+function ENT:ResolveFallbackPos(ply, exiting)
+    local target, fb
+    if exiting then
+        target, fb = self, self.Fallback
+    elseif IsValid(self.interior) then
+        target, fb = self.interior, self.interior.Fallback
+    end
+    -- Narrow each local on its own line (a combined and-chain doesn't propagate
+    -- the nil-narrowing for the analyzer). target is self (always valid) or the
+    -- IsValid-guarded interior, so a plain nil check is sufficient.
+    if not target then return end
+    if not fb then return end
+    local newpos = target:LocalToWorld(fb.pos)
+    local height = ply:OBBMaxs().z
+    local up = Vector(0, 0, height)
+    up:Rotate(Angle(0, 0, target:GetAngles().r))
+    return newpos + Vector(0, 0, (up.z - height) / 2)
+end
+
 if SERVER then
     util.AddNetworkString("Doors-EnterExit")
-    
+
     function ENT:PlayerEnter(ply,notp)
         if ply.doors_cooldowncur and ply.doors_cooldowncur>CurTime() then return end
         if self.occupants[ply] then
@@ -27,12 +53,7 @@ if SERVER then
         if IsValid(self.interior) then
             local portals=self.interior.portals
             if (not notp) and portals and self.interior.Fallback then
-                local newpos = self.interior:LocalToWorld(self.interior.Fallback.pos)
-                local height = ply:OBBMaxs().z
-                local temppos = Vector(0,0,height)
-                temppos:Rotate(Angle(0,0,self.interior:GetAngles().r))
-                newpos = newpos + Vector(0,0,(temppos.z - height) / 2)
-                ply:SetPos(newpos)
+                ply:SetPos(self:ResolveFallbackPos(ply, false))
                 local ang=wp.TransformPortalAngle(ply:EyeAngles(),portals.exterior,portals.interior)
                 local fwd=wp.TransformPortalAngle(ply:GetVelocity():Angle(),portals.exterior,portals.interior):Forward()
                 ply:SetEyeAngles(Angle(ang.p,ang.y,0))
@@ -104,12 +125,7 @@ if SERVER then
         ply.door = nil
         ply.doori = nil
         if not notp and self.Fallback then
-            local newpos = self:LocalToWorld(self.Fallback.pos)
-            local height = ply:OBBMaxs().z
-            local temppos = Vector(0,0,height)
-            temppos:Rotate(Angle(0,0,self:GetAngles().r))
-            newpos = newpos + Vector(0,0,(temppos.z - height) / 2)
-            ply:SetPos(newpos)
+            ply:SetPos(self:ResolveFallbackPos(ply, true))
             if IsValid(self.interior) then
                 local portals=self.interior.portals
                 if (not forced) and portals then
@@ -200,6 +216,15 @@ else
         ent.door = self
         ent.doori = self.interior
         self.occupants[ent] = true
+        -- Predict the unstick the server runs in CheckPlayer (entry case, on the
+        -- interior), so the landing matches and world-portals' mv re-sync keeps
+        -- it. Position only / deterministic / idempotent; degrades to server-
+        -- authoritative if the destination geometry isn't resolvable client-side.
+        local int = self.interior
+        if int:IsStuck(ent) then
+            local safe = int:ResolveSafePos(ent, false)
+            if safe then ent:SetPos(safe) end
+        end
     end)
 end
 
