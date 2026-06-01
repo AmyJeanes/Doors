@@ -42,6 +42,12 @@ function ENT:UpdateCordon()
             --     print("enter",v)
             -- end
             self.props[v]=1
+            -- Back-ref for world-portals' wp-shouldclone (below): marks v as a
+            -- real prop we only hide locally, so it stays cloneable while
+            -- straddling a portal. Class-agnostic -- works for any cordon
+            -- subclass (gmod_tardis_interior etc.); the handler re-validates
+            -- membership, so a stale ref after the prop leaves is harmless.
+            v.DoorsCordonOwner=self
         end
     end
     for k,v in pairs(self.props) do
@@ -146,5 +152,17 @@ if CLIENT then
                 k.olddraw=nil
             end
         end
+    end)
+
+    -- world-portals renders a prop straddling a portal as two clipped halves
+    -- (real + clientside clone). It skips client-NoDraw'd props by default, but
+    -- our cordon SetNoDraw(true)'s interior props while the player is OUTSIDE the
+    -- interior even though they're real server-side. Opt those back in so a prop
+    -- half-through the door still shows its emerged half out the exterior.
+    -- DoorsCordonOwner is set in UpdateCordon; re-validate membership here so a
+    -- prop that has since left the cordon (stale ref) isn't wrongly claimed.
+    hook.Add("wp-shouldclone", "doors_cordon", function(ent)
+        local owner = ent.DoorsCordonOwner
+        if IsValid(owner) and owner.props and owner.props[ent] then return true end
     end)
 end
