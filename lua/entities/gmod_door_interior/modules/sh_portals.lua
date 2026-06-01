@@ -406,3 +406,21 @@ hook.Add("wp-teleport","doors-portals",function(portal,ent,newpos,newang)
         return p:CallHook("PostTeleportPortal",portal,ent,newpos,newang)
     end
 end)
+
+-- A TARDIS/Doors interior's structure (entry wall, door, corridors, floor, ...) is
+-- built from separate gmod_tardis_part_* entities that are NOT engine-parented or
+-- constrained to the interior -- they track it via custom .interior/.parent fields.
+-- So world-portals' gatherWalls (which discovers walls via the portal's engine
+-- parent + that parent's children/constraint network) can't see them. Offer the
+-- interior's parts as CANDIDATES; world-portals only actually no-collides the ones
+-- flagged PART.PortalNoCollide = true (opt-in, default solid), so the floor and far
+-- structure stay solid and a transiting prop can't be dropped through the interior.
+hook.Add("wp-nocollide","doors-portals",function(portal,ent)
+    local p=portal:GetParent()
+    if not (IsValid(p) and (p.DoorInterior or p.DoorExterior) and p._init and istable(p.parts)) then return end
+    local list = {}
+    for _, part in pairs(p.parts) do
+        if IsValid(part) then list[#list+1] = part end
+    end
+    return list
+end)
