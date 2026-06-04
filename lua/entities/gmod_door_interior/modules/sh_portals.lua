@@ -423,7 +423,7 @@ end)
 -- A TARDIS/Doors interior's structure (entry wall, door, corridors, floor, ...) is
 -- built from separate gmod_tardis_part_* entities that are NOT engine-parented or
 -- constrained to the interior -- they track it via custom .interior/.parent fields.
--- So world-portals' gatherWalls (which discovers walls via the portal's engine
+-- So world-portals' gatherParentSolids (which discovers solids via the portal's engine
 -- parent + that parent's children/constraint network) can't see them. Offer the
 -- interior's parts as CANDIDATES; world-portals only actually no-collides the ones
 -- flagged PART.PortalNoCollide = true (opt-in, default solid), so the floor and far
