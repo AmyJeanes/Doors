@@ -7,16 +7,15 @@ function ENT:ResolveFallbackPos(ply, exiting)
     elseif IsValid(self.interior) then
         target, fb = self.interior, self.interior.Fallback
     end
-    -- Narrow each local on its own line - a combined and-chain doesn't propagate
-    -- the nil-narrowing for the analyzer. target is self or the IsValid-guarded
-    -- interior, so a plain nil check suffices.
     if not target then return end
     if not fb then return end
     local newpos = target:LocalToWorld(fb.pos)
     local height = ply:OBBMaxs().z
     local up = Vector(0, 0, height)
     up:Rotate(Angle(0, 0, target:GetAngles().r))
-    -- Roll-lift: keep the eyeline level when the fallback frame is rolled.
+    -- Roll compensation: the player stays world-upright while the frame can be
+    -- rolled, so lower them by half the height lost to the roll to keep the eyeline
+    -- level. A no-op for the common unrolled frame.
     return newpos + Vector(0, 0, (up.z - height) / 2)
 end
 
@@ -213,9 +212,8 @@ else
     end)
 end
 
--- Shared so world-portals' predicted teleport (SetupMove) can veto on the client,
--- not just the server. A consumer's CanPlayerEnter veto only predicts if it too is
--- registered shared; a server-only one still works but rubberbands on veto.
+-- Shared (not server-only) so a downstream consumer's CanPlayerEnter veto can
+-- predict on the client during world-portals' SetupMove teleport.
 ENT:AddHook("ShouldTeleportPortal", "players", function(self,portal,ent)
     if IsValid(ent) and ent:IsPlayer() and self:CallHook("CanPlayerEnter",ent)==false then
         return false
