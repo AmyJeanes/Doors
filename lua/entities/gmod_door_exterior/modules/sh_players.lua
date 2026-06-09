@@ -1,12 +1,10 @@
 -- Handles players
 
--- Pure position resolver for the door's authored Fallback safe-spot. Shared
--- so the interior's predicted unstick (ResolveSafePos) can call it client-side
--- too. Position only: no eye/velocity writes, no hooks. exiting=true -> the
--- exterior fallback (this entity); exiting=false -> the interior fallback.
--- Returns nil if the relevant entity / Fallback isn't available. The roll-lift
--- keeps the eyeline level when the fallback frame is rolled (matches the
--- PlayerEnter/PlayerExit math this was extracted from, and sh_teleport.lua).
+-- Pure position resolver for the door's authored Fallback safe-spot. Shared so
+-- the interior's predicted unstick (ResolveSafePos) can call it client-side too.
+-- Position only: no eye/velocity writes, no hooks. exiting=true -> the exterior
+-- fallback (this entity); exiting=false -> the interior fallback; nil if neither
+-- resolves. The roll-lift keeps the eyeline level when the fallback frame is rolled.
 function ENT:ResolveFallbackPos(ply, exiting)
     local target, fb
     if exiting then
@@ -14,9 +12,9 @@ function ENT:ResolveFallbackPos(ply, exiting)
     elseif IsValid(self.interior) then
         target, fb = self.interior, self.interior.Fallback
     end
-    -- Narrow each local on its own line (a combined and-chain doesn't propagate
-    -- the nil-narrowing for the analyzer). target is self (always valid) or the
-    -- IsValid-guarded interior, so a plain nil check is sufficient.
+    -- Narrow each local on its own line - a combined and-chain doesn't propagate
+    -- the nil-narrowing for the analyzer. target is self or the IsValid-guarded
+    -- interior, so a plain nil check suffices.
     if not target then return end
     if not fb then return end
     local newpos = target:LocalToWorld(fb.pos)
@@ -199,17 +197,10 @@ else
         self.occupants = net.ReadTable()
     end)
 
-    -- Predicted player teleport (world-portals SetupMove path) fires
-    -- wp-teleport client-side, which routes here as PostTeleportPortal on
-    -- the exterior. Mirror the same fields the Doors-EnterExit broadcast
-    -- would set, so the interior's ShouldDraw flips on THIS frame instead
-    -- of one tick later (visible as a "blank sky" frame mid-teleport).
-    -- Server's broadcast still arrives shortly after and re-sets the same
-    -- values. ShouldTeleportPortal is now registered shared (and so are
-    -- CanPlayerEnter "lock"/"teleport"), so a server-side veto whose
-    -- predicate reads networked state is also predicted client-side and
-    -- the predicted teleport never fires. A veto whose predicate uses
-    -- server-only state (e.g. admin permissions) still rubberbands.
+    -- Predicted entry (world-portals SetupMove path): wp-teleport routes here as
+    -- PostTeleportPortal on the exterior. Mirror the fields the Doors-EnterExit
+    -- broadcast sets so the interior's ShouldDraw flips THIS frame, not a tick
+    -- later (the "blank sky" frame mid-teleport); the broadcast re-sets them soon.
     ENT:AddHook("PostTeleportPortal", "predict", function(self, portal, ent)
         if ent ~= LocalPlayer() then return end
         if not IsValid(self.interior) then return end
@@ -217,9 +208,9 @@ else
         ent.doori = self.interior
         self.occupants[ent] = true
         -- Predict the unstick the server runs in CheckPlayer (entry case, on the
-        -- interior), so the landing matches and world-portals' mv re-sync keeps
-        -- it. Position only / deterministic / idempotent; degrades to server-
-        -- authoritative if the destination geometry isn't resolvable client-side.
+        -- interior) so the landing matches and world-portals' mv re-sync keeps it.
+        -- ResolveSafePos is pure, so re-running each resim is idempotent; degrades
+        -- to server-authoritative if not stuck client-side.
         local int = self.interior
         if int:IsStuck(ent) then
             local safe = int:ResolveSafePos(ent, false)
@@ -228,12 +219,10 @@ else
     end)
 end
 
--- ShouldTeleportPortal is registered shared so world-portals' predicted
--- player teleport (SetupMove on the client) can also veto. The handler
--- delegates to CanPlayerEnter; consumers wanting their veto to fire on
--- the client (predicting the server's deny) should register CanPlayerEnter
--- shared too. Server-only registrations still work — they just don't
--- predict, and the client gets a one-tick rubberband on veto.
+-- Shared (not server-only) so world-portals' predicted teleport in SetupMove can
+-- veto on the client too. Delegates to CanPlayerEnter; a consumer wanting its veto
+-- predicted client-side must register CanPlayerEnter shared too. Server-only
+-- registrations still work - they just don't predict (one-tick rubberband on veto).
 ENT:AddHook("ShouldTeleportPortal", "players", function(self,portal,ent)
     if IsValid(ent) and ent:IsPlayer() and self:CallHook("CanPlayerEnter",ent)==false then
         return false

@@ -42,11 +42,10 @@ function ENT:UpdateCordon()
             --     print("enter",v)
             -- end
             self.props[v]=1
-            -- Back-ref for world-portals' wp-shouldghost (below): marks v as a
-            -- real prop we only hide locally, so it stays ghostable while
-            -- straddling a portal. Class-agnostic -- works for any cordon
-            -- subclass (gmod_tardis_interior etc.); the handler re-validates
-            -- membership, so a stale ref after the prop leaves is harmless.
+            -- Back-ref for the wp-shouldghost hook below: marks v as a real prop
+            -- we only hide locally, so it stays ghostable while straddling a
+            -- portal. The handler re-validates membership, so a stale ref after
+            -- the prop leaves is harmless.
             v.DoorsCordonOwner=self
         end
     end
@@ -55,10 +54,9 @@ function ENT:UpdateCordon()
             if v==true then -- left
                 k:SetNoDraw(false)
                 self.props[k]=nil
-                -- Clear the world-portals back-ref (set above) now this prop has
-                -- left the cordon. Guarded on == self: if the prop moved into
-                -- another overlapping cordon, that one has already re-stamped the
-                -- owner, and we must not clobber its claim.
+                -- Clear the back-ref now this prop left. Guarded == self: an
+                -- overlapping cordon may have already re-stamped the owner, and we
+                -- must not clobber its claim.
                 if k.DoorsCordonOwner==self then
                     k.DoorsCordonOwner=nil
                 end
@@ -164,13 +162,11 @@ if CLIENT then
         end
     end)
 
-    -- world-portals renders a prop straddling a portal as two clipped halves
-    -- (real + clientside ghost). It skips client-NoDraw'd props by default, but
-    -- our cordon SetNoDraw(true)'s interior props while the player is OUTSIDE the
-    -- interior even though they're real server-side. Opt those back in so a prop
-    -- half-through the door still shows its emerged half out the exterior.
-    -- DoorsCordonOwner is set in UpdateCordon; re-validate membership here so a
-    -- prop that has since left the cordon (stale ref) isn't wrongly claimed.
+    -- world-portals skips client-NoDraw'd props from ghosting by default, but our
+    -- cordon NoDraws interior props (real server-side) while the player is outside.
+    -- Opt those back in so a prop half-through the door still shows its emerged
+    -- half. Re-validate membership: a prop that has since left the cordon may hold
+    -- a stale DoorsCordonOwner ref.
     hook.Add("wp-shouldghost", "doors_cordon", function(ent)
         local owner = ent.DoorsCordonOwner
         if IsValid(owner) and owner.props and owner.props[ent] then return true end
