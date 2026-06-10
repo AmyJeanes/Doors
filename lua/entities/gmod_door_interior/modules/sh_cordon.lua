@@ -2,6 +2,7 @@
 
 ---@class gmod_door_interior
 ---@field props table<Entity, boolean|integer>
+---@field cordonhidden boolean?
 
 ENT:AddHook("Initialize", "cordon", function(self)
     self.props={}
@@ -34,34 +35,25 @@ function ENT:UpdateCordon()
                 check=false
             end
         end
+        -- Don't adopt entities something else has hidden (e.g. world-portals' NoDraw'd,
+        -- unparented collision frames); first-sight only, since our gate never NoDraws a prop.
         if self.props[v]==nil and v:GetNoDraw() then
             check=false
         end
         if check then
-            -- if not self.props[v] then
-            --     print("enter",v)
-            -- end
             self.props[v]=1
-            -- Back-ref so the wp-shouldghost hook can re-opt this locally-hidden
-            -- prop back into ghosting while it straddles the portal.
-            v.DoorsCordonOwner=self
         end
     end
     for k,v in pairs(self.props) do
         if IsValid(k) then
             if v==true then -- left
-                k:SetNoDraw(false)
+                if CLIENT then self:ReleaseCordonRender(k) end
                 self.props[k]=nil
-                -- Guarded == self: an overlapping cordon may have re-stamped the
-                -- owner, and we must not clear its claim.
-                if k.DoorsCordonOwner==self then
-                    k.DoorsCordonOwner=nil
-                end
-                -- print("exit",k)
             elseif v==1 then
                 self.props[k]=true
             end
         else
+            if CLIENT then self:ReleaseCordonRender(k) end
             self.props[k]=nil
         end
     end
@@ -87,7 +79,6 @@ ENT:AddHook("OnRemove", "cordon", function(self)
         self:UpdateCordon()
         for k in pairs(self.props) do
             if IsValid(k) then
-                -- print("onremove",k)
                 if SERVER then
                     if self:CallHook("ShouldRemoveProp",k) ~= false then
                         k:Remove()
@@ -99,10 +90,7 @@ ENT:AddHook("OnRemove", "cordon", function(self)
                         end
                     end
                 else
-                    k:SetNoDraw(false)
-                end
-                if k.DoorsCordonOwner==self then
-                    k.DoorsCordonOwner=nil
+                    self:ReleaseCordonRender(k)
                 end
                 self.props[k]=nil
             end
@@ -111,16 +99,82 @@ ENT:AddHook("OnRemove", "cordon", function(self)
 end)
 
 if CLIENT then
+    -- One RenderOverride slot, up to three owners inner to outer: a pre-existing foreign
+    -- override, this cordon gate, then world-portals' ghost clip. cordonRender[prop] holds
+    -- our claim, cleared explicitly on leave/removal; __mode="k" (weak keys) is a backstop -
+    -- the GC eventually reaps entries whose prop was collected, so a missed path can't leak.
+    -- (Entity userdata is reaped only a while after removal, hence the explicit clear too.)
+    -- Weak tables: https://www.lua.org/pil/17.html
+    local cordonRender = setmetatable({}, { __mode = "k" })
+
+    -- Visibility derived fresh per render pass (never stored): hidden in the open world
+    -- from outside, shown inside; shown looking through the exterior door, hidden looking
+    -- out the interior door; hidden during a consumer's own RT via cordonhidden.
+    local function cordonShouldDraw(interior)
+        if not IsValid(interior) then return false end
+        if interior.cordonhidden then return false end
+        if wp.drawing then
+            local rp = wp.drawingent
+            local portals = interior.portals
+            if portals then
+                if rp == portals.exterior then return true end
+                if rp == portals.interior then return false end
+            end
+        end
+        return LocalPlayer().doori == interior
+            or (interior.contains and interior.contains[LocalPlayer().door])
+            or false
+    end
+
+    -- Chain whatever override we displaced so another system's look is preserved.
+    local function drawBase(self, flags, rec)
+        local base = rec.base
+        if base and base ~= rec.override then base(self, flags) else self:DrawModel(flags) end
+    end
+
+    local function makeCordonOverride(rec)
+        return function(self, flags)
+            if cordonShouldDraw(rec.interior) then drawBase(self, flags, rec) end
+        end
+    end
+
+    -- Install/repair our override on a prop we own. Yield while the ghost owns the slot
+    -- (it chains us via its saved override); re-capture if a foreign override displaced us.
+    function ENT:EnsureCordonRender(prop)
+        if wp.IsGhosting(prop) then return end
+        local rec = cordonRender[prop]
+        if rec and rec.interior ~= self then return end -- another cordon owns it
+        if not rec then
+            rec = { interior = self }
+            rec.override = makeCordonOverride(rec)
+            rec.base = prop.RenderOverride
+            prop.RenderOverride = rec.override
+            cordonRender[prop] = rec
+        elseif prop.RenderOverride ~= rec.override then
+            rec.base = prop.RenderOverride
+            prop.RenderOverride = rec.override
+        end
+    end
+
+    -- Hand our base back if we still own the slot, or drop it into a ghost-owned slot for
+    -- the ghost to re-capture next frame. If a foreign override displaced us, leave it alone.
+    function ENT:ReleaseCordonRender(prop)
+        local rec = cordonRender[prop]
+        if not rec or rec.interior ~= self then return end
+        if IsValid(prop) and (prop.RenderOverride == rec.override or wp.IsGhosting(prop)) then
+            prop.RenderOverride = rec.base
+        end
+        cordonRender[prop] = nil
+    end
+
     ENT:AddHook("Think", "cordon", function(self)
         if CurTime()>self.propscan then
             self.propscan=CurTime()+1
             self:UpdateCordon()
         end
-        local inside=LocalPlayer().doori==self or self.contains[LocalPlayer().door] or false
         for k in pairs(self.props) do
-            if IsValid(k) and k:GetNoDraw()==inside then
-                -- Need to do this every frame unfortunately as GMod resets it really fast
-                k:SetNoDraw(not inside)
+            if IsValid(k) then
+                self:EnsureCordonRender(k)
             end
         end
     end)
@@ -128,43 +182,12 @@ if CLIENT then
     ENT:AddHook("PlayerEnter", "cordon", function(self)
         self:UpdateCordon()
     end)
-    
+
     ENT:AddHook("PlayerExit", "cordon", function(self)
         self:UpdateCordon()
     end)
 
-    ENT:AddHook("PostTeleportPortal", "cordon", function(self,portal,ent)
+    ENT:AddHook("PostTeleportPortal", "cordon", function(self)
         self:UpdateCordon()
-    end)
-
-    ENT:AddHook("PreRenderPortal", "cordon", function(self,portal,depth)
-        if portal ~= self.portals.interior then return end
-        if depth > 1 then return end
-        for k in pairs(self.props) do
-            if IsValid(k) then
-                k.olddraw=k:GetNoDraw()
-                k:SetNoDraw(true)
-            end
-        end
-    end)
-
-    ENT:AddHook("PostRenderPortal", "cordon", function(self,portal,depth)
-        if portal ~= self.portals.interior then return end
-        if depth > 1 then return end
-        for k in pairs(self.props) do
-            if IsValid(k) and k.olddraw~=nil then
-                k:SetNoDraw(k.olddraw)
-                k.olddraw=nil
-            end
-        end
-    end)
-
-    -- world-portals skips client-NoDraw'd props from ghosting, but our cordon
-    -- NoDraws real (server-drawable) interior props while the player is outside.
-    -- Opt those back in so a prop half-through the door still shows its emerged half.
-    -- Re-validate via owner.props - a prop that left the cordon may hold a stale ref.
-    hook.Add("wp-shouldghost", "doors_cordon", function(ent)
-        local owner = ent.DoorsCordonOwner
-        if IsValid(owner) and owner.props and owner.props[ent] then return true end
     end)
 end
