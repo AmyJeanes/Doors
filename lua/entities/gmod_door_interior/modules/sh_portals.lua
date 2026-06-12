@@ -56,6 +56,14 @@ if SERVER then
             self.portals.exterior:SetThickness(ext.thickness)
         end
 
+        if ext.depth then
+            self.portals.exterior:SetDepth(ext.depth)
+        end
+
+        if ext.faceoffset then
+            self.portals.exterior:SetFaceOffset(ext.faceoffset)
+        end
+
         if ext.inverted then
             self.portals.exterior:SetInverted(ext.inverted)
         end
@@ -96,6 +104,14 @@ if SERVER then
         
         if int.thickness then
             self.portals.interior:SetThickness(int.thickness)
+        end
+
+        if int.depth then
+            self.portals.interior:SetDepth(int.depth)
+        end
+
+        if int.faceoffset then
+            self.portals.interior:SetFaceOffset(int.faceoffset)
         end
 
         if int.inverted then
@@ -148,6 +164,14 @@ if SERVER then
                     portals.entry:SetThickness(v.entry.thickness)
                 end
 
+                if v.entry.depth then
+                    portals.entry:SetDepth(v.entry.depth)
+                end
+
+                if v.entry.faceoffset then
+                    portals.entry:SetFaceOffset(v.entry.faceoffset)
+                end
+
                 if v.entry.inverted then
                     portals.entry:SetInverted(v.entry.inverted)
                 end
@@ -190,6 +214,14 @@ if SERVER then
 
                 if v.exit.thickness then
                     portals.exit:SetThickness(v.exit.thickness)
+                end
+
+                if v.exit.depth then
+                    portals.exit:SetDepth(v.exit.depth)
+                end
+
+                if v.exit.faceoffset then
+                    portals.exit:SetFaceOffset(v.exit.faceoffset)
                 end
 
                 if v.exit.inverted then
@@ -238,6 +270,14 @@ if SERVER then
 
                 if v.thickness then
                     fworld:SetThickness(v.thickness)
+                end
+
+                if v.depth then
+                    fworld:SetDepth(v.depth)
+                end
+
+                if v.faceoffset then
+                    fworld:SetFaceOffset(v.faceoffset)
                 end
 
                 if v.inverted then
