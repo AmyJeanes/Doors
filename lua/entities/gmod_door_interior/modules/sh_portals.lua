@@ -327,29 +327,18 @@ else
     ENT:AddHook("ShouldRenderPortal", "portals", function(self)
         local rp = wp.renderparent
         if self.portals then
-            -- Looking out our interior door: the exterior view it shows isn't our
-            -- interior, so our portals don't belong in it. Scan-phase twin of the
-            -- wp.drawingent check ShouldDraw uses for the interior world. Exception:
-            -- if our exterior is parked inside an interior (self-nested, or this TARDIS
-            -- in another), looking out genuinely shows that interior, so they do belong.
+            -- looking out our interior door: it shows the exterior, not us
             if rp==self.portals.interior then
-                if IsValid(self.exterior) and IsValid(self.exterior.insideof) then
-                    return
-                end
+                -- unless our exterior is parked inside another interior (self-nested / TARDIS-in-TARDIS),
+                -- where looking out shows that interior, so our portals should render there
+                if IsValid(self.exterior) and IsValid(self.exterior.insideof) then return end
                 return false
             end
-            -- Looking in through our exterior door: our interior's portals belong in
-            -- that view (a false world is a portal nested in the regular portal), even
-            -- for a non-occupant. Defer to the rest of the chain (door open etc).
-            if rp==self.portals.exterior then
-                return
-            end
+            -- looking in our exterior door: our portals should render, even for a non-occupant
+            if rp==self.portals.exterior then return end
         end
-        -- Otherwise (your own eye view, or the open world): only someone inside sees our
-        -- interior's portals.
-        if not self:LocalPlayerInside() then
-            return false
-        end
+        -- otherwise (own eye view / open world): only someone inside sees our portals
+        if not self:LocalPlayerInside() then return false end
     end)
     
     hook.Add("wp-shouldrender", "doors-portals", function(portal,exit,origin)

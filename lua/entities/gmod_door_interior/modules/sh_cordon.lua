@@ -35,8 +35,6 @@ function ENT:UpdateCordon()
                 check=false
             end
         end
-        -- Don't adopt entities something else has hidden (e.g. world-portals' NoDraw'd,
-        -- unparented collision frames); first-sight only, since our gate never NoDraws a prop.
         if self.props[v]==nil and v:GetNoDraw() then
             check=false
         end
@@ -99,34 +97,35 @@ ENT:AddHook("OnRemove", "cordon", function(self)
 end)
 
 if CLIENT then
-    -- One RenderOverride slot, up to three owners inner to outer: a pre-existing foreign
-    -- override, this cordon gate, then world-portals' ghost clip. cordonRender[prop] holds
-    -- our claim, cleared explicitly on leave/removal; __mode="k" (weak keys) is a backstop -
-    -- the GC eventually reaps entries whose prop was collected, so a missed path can't leak.
-    -- (Entity userdata is reaped only a while after removal, hence the explicit clear too.)
-    -- Weak tables: https://www.lua.org/pil/17.html
+    -- A prop has one RenderOverride slot, but up to three things layer onto it, inner to outer:
+    -- an override already there, this cordon, then world-portals' ghost. cordonRender tracks the
+    -- props we've claimed; we clear a prop's entry ourselves when it leaves or gets deleted.
+    -- { __mode = "k" } tells Lua our entry here doesn't count as a reason to keep a prop alive, so
+    -- if nothing else references a prop once it's gone, Lua quietly drops our entry too. That's a
+    -- backstop for a missed cleanup though - it's slow for entities, so our own clearing keeps it tidy.
     local cordonRender = setmetatable({}, { __mode = "k" })
 
-    -- Visibility derived fresh per render pass (never stored): hidden in the open world
-    -- from outside, shown inside; shown looking through the exterior door, hidden looking
-    -- out the interior door; hidden during a consumer's own RT via cordonhidden.
+    -- Recomputed each render pass, never cached - it depends on which view is drawing.
     local function cordonShouldDraw(interior)
         if not IsValid(interior) then return false end
+        -- hidden during a consumer's own RT
         if interior.cordonhidden then return false end
         if wp.drawing then
             local rp = wp.drawingent
             local portals = interior.portals
             if portals then
+                -- looking in through the exterior door: show our props
                 if rp == portals.exterior then return true end
+                -- looking out the interior door: hide our props
                 if rp == portals.interior then
-                    -- Looking out our interior door: hide our props - unless our exterior
-                    -- is parked inside an interior (self-nested, or this TARDIS in another),
-                    -- where looking out genuinely shows that interior and the props belong.
+                    -- unless our exterior is parked inside another interior (self-nested / TARDIS-in-TARDIS),
+                    -- where looking out shows that interior, so our props should draw
                     if IsValid(interior.exterior) and IsValid(interior.exterior.insideof) then return true end
                     return false
                 end
             end
         end
+        -- otherwise: shown only when the player is inside
         return interior:LocalPlayerInside()
     end
 
@@ -160,8 +159,10 @@ if CLIENT then
         end
     end
 
-    -- Hand our base back if we still own the slot, or drop it into a ghost-owned slot for
-    -- the ghost to re-capture next frame. If a foreign override displaced us, leave it alone.
+    -- Release our claim on the prop's single RenderOverride slot. If we still own it, put back
+    -- whatever override sat under us. If the ghost owns it now, write that override in anyway:
+    -- next frame the ghost re-captures the slot and chains to it instead of to us. If a foreign
+    -- override displaced us, leave it alone - the slot is no longer ours to restore.
     function ENT:ReleaseCordonRender(prop)
         local rec = cordonRender[prop]
         if not rec or rec.interior ~= self then return end
