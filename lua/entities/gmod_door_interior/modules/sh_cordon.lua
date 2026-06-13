@@ -132,7 +132,20 @@ if CLIENT then
     -- Chain whatever override we displaced so another system's look is preserved.
     local function drawBase(self, flags, rec)
         local base = rec.base
-        if base and base ~= rec.override then base(self, flags) else self:DrawModel(flags) end
+        if base and base ~= rec.override then
+            base(self, flags)
+            -- A chained override can nil ours and skip its own draw on the frame it tears
+            -- down - GMod's spawn-effect RenderParent does exactly this when the 0.5s effect
+            -- ends. Draw the model ourselves and re-take the slot so the prop doesn't blip
+            -- the frame before the next Think re-adopts it.
+            if self.RenderOverride ~= rec.override then
+                self:DrawModel(flags)
+                rec.base = nil
+                self.RenderOverride = rec.override
+            end
+        else
+            self:DrawModel(flags)
+        end
     end
 
     local function makeCordonOverride(rec)
