@@ -16,9 +16,8 @@ function ENT:GetStuckTrace(ply)
     td.endpos=pos
     td.mins=ply:OBBMins()
     td.maxs=ply:OBBMaxs()
-    -- Match the player's real movement collision. Without it the trace defaults to
-    -- MASK_SOLID, which can read a player wedged in another solid (a TARDIS shell) as
-    -- 0.12u-clear, so the unstick "succeeds" while they stay frozen in place.
+    -- Use the player's movement mask, not the trace default (MASK_SOLID), which can read a
+    -- player wedged in a solid (a TARDIS shell) as ~clear so the unstick falsely "succeeds".
     td.mask=MASK_PLAYERSOLID
     -- The StuckFilter hook lets a consumer add networked entities for this trace to
     -- ignore. They must be networked so the predicting client and server build the
@@ -147,26 +146,34 @@ if SERVER then
         end
     end)
 
-    -- The crossing-time unstick checks before a player can settle a fraction into an
-    -- exterior shell parked inside the interior (self-nested, or a TARDIS in another
-    -- TARDIS) - they drop into it a tick later, too late for that check. Re-resolve any
-    -- occupant left stuck, pushing them out via the shell's OWN interior so the exit-door
-    -- direction actually escapes it (our own door may point the wrong way).
+    local UNSTICK_WINDOW = 0.25 -- seconds after a crossing to watch for a settle into a shell
+
+    -- A player can settle a fraction into an exterior shell parked inside us (self-nested, or a
+    -- TARDIS in another TARDIS) a tick or two after crossing - too late for the crossing-time
+    -- unstick. For a short window after a teleport (armed below), re-resolve an occupant that
+    -- lands stuck. Bounded to that window so we never yank a player stuck for an unrelated reason.
     ENT:AddHook("Think", "unstick-occupant", function(self)
         if not self._init or not self.occupants then return end
         for ply in pairs(self.occupants) do
-            if IsValid(ply) and ply:IsPlayer() and self:IsStuck(ply) then
+            if IsValid(ply) and ply:IsPlayer() and (ply.DoorsUnstickUntil or 0) > CurTime() and self:IsStuck(ply) then
                 local hit = util.TraceHull(self:GetStuckTrace(ply)).Entity
-                local shellInt = IsValid(hit) and hit.interior
-                local resolver = (IsValid(shellInt) and shellInt.ResolveSafePos) and shellInt or self
-                local safe = resolver:ResolveSafePos(ply, true)
-                if safe then ply:SetPos(safe) end
+                -- resolve via the shell they're stuck in, so its OWN exit door escapes it (ours may point wrong)
+                local resolver = self
+                if IsValid(hit) then
+                    local shellInt = hit.interior
+                    if IsValid(shellInt) and shellInt.ResolveSafePos then resolver = shellInt end
+                end
+                if IsValid(resolver) then
+                    local safe = resolver:ResolveSafePos(ply, true)
+                    if safe then ply:SetPos(safe) end
+                end
             end
         end
     end)
 
     hook.Add("wp-teleport","doors-handleplayers",function(portal,ent)
         if ent:IsPlayer() then
+            ent.DoorsUnstickUntil = CurTime() + UNSTICK_WINDOW -- arm the settle-into-shell recheck
             for k in pairs(Doors:GetInteriors()) do
                 k:CheckPlayer(ent,portal)
             end
