@@ -141,7 +141,7 @@ The analyzer (`glua_ls` / `glua_check`) understands `---@class`, `---@field`, `-
   - `cppi.lua` declares Falco's optional CPPI library (`CPPI` table + `Entity:CPPISetOwner`).
 - **vON** (`lua/doors/libraries/libraries/sh_von.lua`) carries a file-level `---@diagnostic disable` because it's third-party and we don't touch it. Same pattern for any future vendored library.
 
-There is intentionally **no `diagnostics.disable` block in `.luarc.json`** — every rule earns its keep. Prefer code-level fixes or targeted annotations over global suppression. If a rule starts producing pure noise the underscore convention can't fix, that's the time to revisit.
+The `.luarc.json` carries a **small, temporary `diagnostics.disable` block** (`need-check-nil`, `unchecked-nil-access`, `param-type-mismatch`) — the "pure noise" revisit this paragraph always anticipated. glua_ls 1.0.20+'s flow-based nil analysis, plus stricter coercion that no longer honours the integer-enum aliases in `glua_overrides.lua`, flood false positives on GMod dynamic dispatch (zero real bugs). Every other rule still earns its keep — prefer code-level fixes or targeted annotations — and re-enable these once `Pollux12/gmod-glua-ls` improves.
 
 ### Claude Code LSP integration (`glua-lsp` plugin)
 
