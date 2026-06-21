@@ -287,6 +287,13 @@ if CLIENT then
         if (not localplyinside or shoulddraw==false) and not drawingportal then
             return true
         end
+        int:CallHook("PreDrawPlayer", ply)
+    end)
+
+    hook.Add("PostPlayerDraw", "doors-handleplayers", function(ply)
+        local int=ply.doori
+        if not IsValid(int) then return end
+        int:CallHook("PostDrawPlayer", ply)
     end)
 
     hook.Add("DrawPhysgunBeam", "doors-handleplayers", function(ply)
