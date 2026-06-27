@@ -6,7 +6,6 @@
 
 ENT:AddHook("Initialize", "cordon", function(self)
     self.props={}
-    self.propscan=0
     if not (self.mins and self.maxs) then
         self.mins,self.maxs=self:OBBMins()*0.95, self:OBBMaxs()*0.95
     end
@@ -14,7 +13,8 @@ end)
 
 local blacklist={
     ["player"] = true,
-    ["viewmodel"] = true
+    ["viewmodel"] = true,
+    ["predicted_viewmodel"] = true
 }
 
 ENT:AddHook("Cordon", "cordon", function(self,class,ent)
@@ -56,6 +56,10 @@ function ENT:UpdateCordon()
         end
     end
 end
+
+ENT:AddHook("SlowThink", "cordon", function(self)
+    self:UpdateCordon()
+end)
 
 if SERVER then
     ENT:AddHook("PostInitialize","cordon",function(self)
@@ -190,10 +194,6 @@ if CLIENT then
     end
 
     ENT:AddHook("Think", "cordon", function(self)
-        if CurTime()>self.propscan then
-            self.propscan=CurTime()+1
-            self:UpdateCordon()
-        end
         for k in pairs(self.props) do
             if IsValid(k) then
                 self:EnsureCordonRender(k)
