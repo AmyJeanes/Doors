@@ -277,6 +277,12 @@ if CLIENT then
         end
     end)
 
+    local function renderingOutOwnDoor(int)
+        local portals = int.portals
+        if not (wp.drawing and portals and wp.drawingent == portals.interior) then return false end
+        return not (IsValid(int.exterior) and IsValid(int.exterior.insideof))
+    end
+
     hook.Add("PrePlayerDraw", "doors-handleplayers", function(ply)
         local int=ply.doori
         if not IsValid(int) then return end
@@ -284,7 +290,7 @@ if CLIENT then
         local localplyinside=int:LocalPlayerInside()
         local drawingportal=wp.drawing and wp.drawingent==int.portals.exterior
         local shoulddraw=int:CallHook("ShouldDrawPlayer", ply, localply)
-        if (not localplyinside or shoulddraw==false) and not drawingportal then
+        if renderingOutOwnDoor(int) or ((not localplyinside or shoulddraw==false) and not drawingportal) then
             return true
         end
         int:CallHook("PreDrawPlayer", ply)
@@ -303,7 +309,7 @@ if CLIENT then
         local localplyinside=int:LocalPlayerInside()
         local drawingportal=wp.drawing and wp.drawingent==int.portals.exterior
         local shoulddraw=int:CallHook("ShouldDrawPlayer", ply, localply)
-        if (not localplyinside or shoulddraw==false) and not drawingportal then
+        if renderingOutOwnDoor(int) or ((not localplyinside or shoulddraw==false) and not drawingportal) then
             return false
         end
     end)
