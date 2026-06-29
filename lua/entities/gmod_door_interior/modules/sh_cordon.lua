@@ -110,7 +110,7 @@ if CLIENT then
     local cordonRender = setmetatable({}, { __mode = "k" })
 
     -- Recomputed each render pass, never cached - it depends on which view is drawing.
-    local function cordonShouldDraw(interior)
+    local function cordonShouldDraw(interior, prop)
         if not IsValid(interior) then return false end
         -- hidden during a consumer's own RT
         if interior.cordonhidden then return false end
@@ -129,8 +129,9 @@ if CLIENT then
                 end
             end
         end
-        -- otherwise: shown only when the player is inside
-        return interior:LocalPlayerInside()
+        -- otherwise: shown only when the player is inside unless another hook blocks it
+        if not interior:LocalPlayerInside() then return false end
+        return interior:CallHook("ShouldDrawCordonProp", prop, LocalPlayer()) ~= false
     end
 
     -- Chain whatever override we displaced so another system's look is preserved.
@@ -155,7 +156,7 @@ if CLIENT then
     local function makeCordonOverride(rec)
         return function(self, flags)
             local interior = rec.interior
-            if not cordonShouldDraw(interior) then return end
+            if not cordonShouldDraw(interior, self) then return end
             interior:CallHook("PreDrawCordonProp", self, flags)
             drawBase(self, flags, rec)
             interior:CallHook("PostDrawCordonProp", self, flags)
