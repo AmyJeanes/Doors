@@ -2,10 +2,12 @@
 
 ---@class gmod_door_interior
 ---@field props table<Entity, boolean|integer>
+---@field cordonignore table<Entity, boolean>
 ---@field cordonhidden boolean?
 
 ENT:AddHook("Initialize", "cordon", function(self)
     self.props={}
+    self.cordonignore={}
     if not (self.mins and self.maxs) then
         self.mins,self.maxs=self:OBBMins()*0.95, self:OBBMaxs()*0.95
     end
@@ -25,7 +27,7 @@ function ENT:UpdateCordon()
     for _,v in pairs(ents.FindInBox(self:LocalToWorld(self.mins),self:LocalToWorld(self.maxs))) do
         local check=true
         local class=v:GetClass()
-        if blacklist[class] or self:CallHook("Cordon",class,v)==false then
+        if self.cordonignore[v] or blacklist[class] or self:CallHook("Cordon",class,v)==false then
             check=false
         end
         local p=v:GetParent()
@@ -61,8 +63,15 @@ ENT:AddHook("SlowThink", "cordon", function(self)
     self:UpdateCordon()
 end)
 
-if SERVER then
-    ENT:AddHook("PostInitialize","cordon",function(self)
+-- Ignore any map created entities that we happened to spawn inside of e.g. skybox props
+-- so we don't accidentally bring them along and remove them with the interior.
+ENT:AddHook("PostInitialize","cordon",function(self)
+    for _,v in pairs(ents.FindInBox(self:LocalToWorld(self.mins),self:LocalToWorld(self.maxs))) do
+        if v:CreatedByMap() then
+            self.cordonignore[v]=true
+        end
+    end
+    if SERVER then
         self:UpdateCordon()
         for k in pairs(self.props) do
             if k.DoorsPhysicsFrozen then
@@ -73,8 +82,8 @@ if SERVER then
                 end
             end
         end
-    end)
-end
+    end
+end)
 
 ENT:AddHook("OnRemove", "cordon", function(self)
     if self.props then
