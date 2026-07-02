@@ -3,6 +3,21 @@
 CreateConVar("doors_interior_tries", 10000, {FCVAR_ARCHIVE, FCVAR_REPLICATED, FCVAR_NOTIFY}, "Doors - How many tries to find a valid interior placement")
 
 if SERVER then
+    -- Skip spots inside map props with no collision (e.g. 3D-skybox scenery) - the trace can't see
+    -- them, so the interior would otherwise spawn embedded in one. Brush entities (e.g. *0 *1 *2)
+    -- are ignored as they're part of map geometry or are non-visual e.g. worldspawn, triggers, etc.
+    local function mapPropInBox(pos, mins, maxs)
+        for _,v in ipairs(ents.FindInBox(pos+mins, pos+maxs)) do
+            if v:CreatedByMap() then
+                local m = v:GetModel()
+                if m and m~="" and string.sub(m,1,1)~="*" then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
     function ENT:FindPosition(e)
         local creator=e:GetCreator()
         if self:CallHook("FindingPosition", e, creator)~=true then
@@ -33,6 +48,7 @@ if SERVER then
             if ((not highest) or (highest and nowhere.z>highest.z))
                 and (not util.TraceHull(td --[[@as HullTrace]]).Hit)
                 and (self:CallHook("AllowInteriorPos",nil,nowhere,td.mins,td.maxs)~=false)
+                and not mapPropInBox(nowhere,td.mins,td.maxs)
             then
                 highest = nowhere
             end
