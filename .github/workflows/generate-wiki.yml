@@ -1,0 +1,65 @@
+name: Generate Wiki
+
+on:
+  push:
+    branches:
+    - dev
+    paths:
+    - lua/**
+    - scripts/generate-wiki-api.ps1
+    - scripts/wiki-api.config.ps1
+    - scripts/bootstrap.ps1
+    - scripts/install-tools.ps1
+    - .github/workflows/generate-wiki.yml
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate_wiki:
+    name: Generate Wiki
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          path: Doors
+
+      - name: Checkout gmod-addon-tools
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: AmyJeanes/gmod-addon-tools
+          # renovate: datasource=github-tags depName=AmyJeanes/gmod-addon-tools
+          ref: v0.2.0
+          path: gmod-addon-tools
+
+      # The wiki is a separate git repo (<repo>.wiki.git). The default GITHUB_TOKEN
+      # cannot push to it, so authenticate the clone with the PAT instead.
+      - name: Clone wiki
+        run: git clone "https://x-access-token:${{ secrets.TOKEN }}@github.com/${{ github.repository }}.wiki.git" wiki
+
+      - name: Install tooling
+        working-directory: Doors
+        run: ./scripts/install-tools.ps1
+        shell: pwsh
+
+      - name: Generate wiki pages
+        working-directory: Doors
+        run: ./scripts/generate-wiki-api.ps1 -WikiPath ../wiki
+        shell: pwsh
+
+      - name: Commit and push
+        working-directory: wiki
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No wiki changes."
+          else
+            git commit -m "Update API reference (${{ github.sha }})"
+            git push
+          fi

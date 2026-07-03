@@ -2,7 +2,7 @@
 ---@field Model string
 ---@field Fallback table?
 ---@field interior gmod_door_interior?
----@field Portal DoorPortalSide?
+---@field Portal doors_portal_side?
 ---@field initqueue table
 
 ENT.Type = "anim"

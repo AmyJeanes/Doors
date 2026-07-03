@@ -1,6 +1,6 @@
 -- Handles portals for rendering, thanks to bliptec (http://facepunch.com/member.php?u=238641) for being a babe
 
----@class DoorPortalSide
+---@class doors_portal_side
 ---@field pos Vector
 ---@field ang Angle
 ---@field width number
@@ -15,9 +15,9 @@
 ---@field black boolean?
 ---@field fallback Vector?
 
----@class DoorCustomPortal
----@field entry DoorPortalSide
----@field exit DoorPortalSide
+---@class doors_custom_portal
+---@field entry doors_portal_side
+---@field exit doors_portal_side
 
 if SERVER then
 
@@ -138,7 +138,7 @@ if SERVER then
         if self.CustomPortals then
             self.customportals={}
             for k,v in pairs(self.CustomPortals) do
-                ---@cast v DoorCustomPortal
+                ---@cast v doors_custom_portal
                 self.customportals[k] = {}
                 local portals = self.customportals[k]
                 portals.entry=ents.Create("linked_portal_door")
@@ -238,7 +238,7 @@ if SERVER then
         if self.FalseWorldWindows then
             self.falseworldwindows={}
             for k,v in pairs(self.FalseWorldWindows) do
-                ---@cast v DoorPortalSide
+                ---@cast v doors_portal_side
                 local fworld = ents.Create("linked_portal_door")
                 self.falseworldwindows[k] = fworld
 

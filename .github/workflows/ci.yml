@@ -46,6 +46,14 @@ jobs:
           ref: master
           path: wire
 
+      - name: Checkout gmod-addon-tools
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: AmyJeanes/gmod-addon-tools
+          # renovate: datasource=github-tags depName=AmyJeanes/gmod-addon-tools
+          ref: v0.2.0
+          path: gmod-addon-tools
+
       - name: Run glua_check
         working-directory: Doors
         shell: pwsh

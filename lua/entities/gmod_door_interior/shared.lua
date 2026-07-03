@@ -1,9 +1,9 @@
 ---@class gmod_door_interior : Entity
 ---@field Model string
 ---@field exterior gmod_door_exterior
----@field Portal DoorPortalSide?
----@field CustomPortals table<string, DoorCustomPortal>?
----@field FalseWorldWindows table<string, DoorPortalSide>?
+---@field Portal doors_portal_side?
+---@field CustomPortals table<string, doors_custom_portal>?
+---@field FalseWorldWindows table<string, doors_portal_side>?
 ---@field initqueue table
 
 ENT.Type = "anim"

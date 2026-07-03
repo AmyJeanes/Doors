@@ -15,6 +15,10 @@ FCVAR_ARCHIVE = 128
 FCVAR_REPLICATED = 8192
 ---@type FCVAR
 FCVAR_NOTIFY = 256
+---@type OBS_MODE
+OBS_MODE_NONE = 0
+---@type OBS_MODE
+OBS_MODE_ROAMING = 6
 
 -- A trace's `mask` field is typed MASK (the same literal union), so widen MASK to integer
 -- for assignments like `td.mask = MASK_PLAYERSOLID`.
