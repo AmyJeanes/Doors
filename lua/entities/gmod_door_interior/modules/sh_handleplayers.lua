@@ -1,5 +1,8 @@
 -- Handles players inside the interior
 
+---@api
+---@param pos Vector
+---@return boolean
 function ENT:PositionInside(pos)
     if self.ExitBox and (pos:WithinAABox(self:LocalToWorld(self.ExitBox.Min),self:LocalToWorld(self.ExitBox.Max))) then
         return true
@@ -187,6 +190,9 @@ else
     -- Local player is inside this interior: occupying it directly (doori), or standing in
     -- a box nested inside us at any depth (a TARDIS in a TARDIS in us) - walk out each
     -- containing box via insideof. One source of truth for every render/think gate.
+
+    ---@api
+    ---@return boolean
     function ENT:LocalPlayerInside()
         local ply = LocalPlayer()
         if ply.doori == self then return true end

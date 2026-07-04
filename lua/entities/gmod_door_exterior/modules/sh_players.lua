@@ -26,6 +26,9 @@ end
 if SERVER then
     util.AddNetworkString("Doors-EnterExit")
 
+    ---@api
+    ---@param ply Player
+    ---@param notp boolean?
     function ENT:PlayerEnter(ply,notp)
         if ply.doors_cooldowncur and ply.doors_cooldowncur>CurTime() then return end
         if self.occupants[ply] then
@@ -65,6 +68,10 @@ if SERVER then
         end
     end
 
+    ---@api
+    ---@param ply Player
+    ---@param forced boolean?
+    ---@param notp boolean?
     function ENT:PlayerExit(ply,forced,notp)
         if self:CallHook("CanPlayerExit",ply)==false and (not forced) then
             return
