@@ -13,6 +13,7 @@ if CLIENT then
     end
 end
 
+---@api
 function Doors:SetupOwner(ent,ply)
     ent:SetCreator(ply)
     if SERVER and CPPI then

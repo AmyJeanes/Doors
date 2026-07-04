@@ -19,6 +19,7 @@ ENT.DoorInterior    = true
 -- Hook system for modules
 local hooks={}
 
+---@api
 ---@param func fun(self: gmod_door_interior, ...): any?
 function ENT:AddHook(name,id,func)
     if not (hooks[name]) then hooks[name]={} end
@@ -27,12 +28,14 @@ function ENT:AddHook(name,id,func)
     hooks[name][id]=func
 end
 
+---@api
 function ENT:RemoveHook(name,id)
     if hooks[name] and hooks[name][id] then
         hooks[name][id]=nil
     end
 end
 
+---@api
 function ENT:CallHook(name,...)
     if not hooks[name] then return end
     local a,b,c,d,e,f
@@ -44,6 +47,7 @@ function ENT:CallHook(name,...)
     end
 end
 
+---@api
 function ENT:LoadFolder(folder,addonly,noprefix)
     folder="entities/gmod_door_interior/"..folder.."/"
     local modules = file.Find(folder.."*.lua","LUA")

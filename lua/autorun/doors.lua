@@ -2,6 +2,7 @@
 
 ---@class Doors
 Doors=Doors or {}
+---@api
 function Doors:LoadFolder(folder,addonly,noprefix)
     if folder then
         folder="doors/"..folder.."/"

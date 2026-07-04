@@ -36,6 +36,7 @@ function ENT:GetStuckTrace(ply)
     return td --[[@as HullTrace]]
 end
 
+---@api
 function ENT:IsStuck(ply)
     if ply:GetMoveType()==MOVETYPE_NOCLIP then return false end
     local td=self:GetStuckTrace(ply)
@@ -46,12 +47,14 @@ end
 -- True when our own exterior is parked inside our interior (self-nested, e.g. a TARDIS
 -- landed inside itself). Crossing the interior door then keeps the player inside us
 -- instead of putting them out, so the enter/exit and predicted paths special-case it.
+---@api
 function ENT:ExteriorIsNested()
     return IsValid(self.exterior) and self:PositionInside(self.exterior:GetPos())
 end
 
 -- Position only - no eye writes or hooks. Runs in the predicted unstick path on
 -- both realms (and every client resim), so it must stay pure and idempotent.
+---@api
 function ENT:ResolveSafePos(ply, exiting)
     local function clear(pos)
         local t = self:GetStuckTrace(ply)
