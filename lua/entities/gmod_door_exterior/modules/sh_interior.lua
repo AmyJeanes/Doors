@@ -6,6 +6,9 @@ if SERVER then
     -- Skip spots inside map props with no collision (e.g. 3D-skybox scenery) - the trace can't see
     -- them, so the interior would otherwise spawn embedded in one. Brush entities (e.g. *0 *1 *2)
     -- are ignored as they're part of map geometry or are non-visual e.g. worldspawn, triggers, etc.
+    ---@param pos Vector
+    ---@param mins Vector
+    ---@param maxs Vector
     local function mapPropInBox(pos, mins, maxs)
         for _,v in ipairs(ents.FindInBox(pos+mins, pos+maxs)) do
             if v:CreatedByMap() then
@@ -18,6 +21,7 @@ if SERVER then
         return false
     end
 
+    ---@param e gmod_door_interior
     function ENT:FindPosition(e)
         local creator=e:GetCreator()
         if self:CallHook("FindingPosition", e, creator)~=true then

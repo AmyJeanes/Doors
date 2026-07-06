@@ -110,15 +110,23 @@ ENT:AddHook("OnRemove", "cordon", function(self)
 end)
 
 if CLIENT then
+    ---@class doors_cordon_render
+    ---@field interior gmod_door_interior
+    ---@field override function?
+    ---@field base function?
+
     -- A prop has one RenderOverride slot, but up to three things layer onto it, inner to outer:
     -- an override already there, this cordon, then world-portals' ghost. cordonRender tracks the
     -- props we've claimed; we clear a prop's entry ourselves when it leaves or gets deleted.
     -- { __mode = "k" } tells Lua our entry here doesn't count as a reason to keep a prop alive, so
     -- if nothing else references a prop once it's gone, Lua quietly drops our entry too. That's a
     -- backstop for a missed cleanup though - it's slow for entities, so our own clearing keeps it tidy.
+    ---@type table<Entity, doors_cordon_render>
     local cordonRender = setmetatable({}, { __mode = "k" })
 
     -- Recomputed each render pass, never cached - it depends on which view is drawing.
+    ---@param interior gmod_door_interior
+    ---@param prop Entity
     local function cordonShouldDraw(interior, prop)
         if not IsValid(interior) then return false end
         -- hidden during a consumer's own RT
@@ -144,6 +152,9 @@ if CLIENT then
     end
 
     -- Chain whatever override we displaced so another system's look is preserved.
+    ---@param self Entity
+    ---@param flags number
+    ---@param rec doors_cordon_render
     local function drawBase(self, flags, rec)
         local base = rec.base
         if base and base ~= rec.override then
@@ -162,7 +173,10 @@ if CLIENT then
         end
     end
 
+    ---@param rec doors_cordon_render
     local function makeCordonOverride(rec)
+        ---@param self Entity
+        ---@param flags number
         return function(self, flags)
             local interior = rec.interior
             if not cordonShouldDraw(interior, self) then return end
@@ -174,6 +188,7 @@ if CLIENT then
 
     -- Install/repair our override on a prop we own. Yield while the ghost owns the slot
     -- (it chains us via its saved override); re-capture if a foreign override displaced us.
+    ---@param prop Entity
     function ENT:EnsureCordonRender(prop)
         if wp.IsGhosting(prop) then return end
         local rec = cordonRender[prop]
@@ -194,6 +209,7 @@ if CLIENT then
     -- whatever override sat under us. If the ghost owns it now, write that override in anyway:
     -- next frame the ghost re-captures the slot and chains to it instead of to us. If a foreign
     -- override displaced us, leave it alone - the slot is no longer ours to restore.
+    ---@param prop Entity
     function ENT:ReleaseCordonRender(prop)
         local rec = cordonRender[prop]
         if not rec or rec.interior ~= self then return end

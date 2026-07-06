@@ -3,6 +3,9 @@
 ---@class Doors
 Doors=Doors or {}
 ---@api
+---@param folder string?
+---@param addonly boolean?
+---@param noprefix boolean?
 function Doors:LoadFolder(folder,addonly,noprefix)
     if folder then
         folder="doors/"..folder.."/"

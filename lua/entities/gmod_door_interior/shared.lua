@@ -20,6 +20,8 @@ ENT.DoorInterior    = true
 local hooks={}
 
 ---@api
+---@param name string
+---@param id string
 ---@param func fun(self: gmod_door_interior, ...): any?
 function ENT:AddHook(name,id,func)
     if not (hooks[name]) then hooks[name]={} end
@@ -29,6 +31,8 @@ function ENT:AddHook(name,id,func)
 end
 
 ---@api
+---@param name string
+---@param id string
 function ENT:RemoveHook(name,id)
     if hooks[name] and hooks[name][id] then
         hooks[name][id]=nil
@@ -36,6 +40,7 @@ function ENT:RemoveHook(name,id)
 end
 
 ---@api
+---@param name string
 function ENT:CallHook(name,...)
     if not hooks[name] then return end
     local a,b,c,d,e,f
@@ -48,6 +53,9 @@ function ENT:CallHook(name,...)
 end
 
 ---@api
+---@param folder string
+---@param addonly boolean?
+---@param noprefix boolean?
 function ENT:LoadFolder(folder,addonly,noprefix)
     folder="entities/gmod_door_interior/"..folder.."/"
     local modules = file.Find(folder.."*.lua","LUA")
@@ -79,10 +87,13 @@ end
 ENT:LoadFolder("modules/libraries") -- loaded before main modules
 ENT:LoadFolder("modules")
 
+---@param a Entity
+---@param c Entity
 function ENT:Use(a,c)
     self:CallHook("Use",a,c)
 end
 
+---@param fullUpdate boolean
 function ENT:OnRemove(fullUpdate)
     if fullUpdate then
         return -- https://wiki.facepunch.com/gmod/ENTITY:OnRemove#clientsidebehaviourremarks

@@ -5,6 +5,8 @@
 ---@field doori gmod_door_interior?
 
 ---@api
+---@param ply Player
+---@param exiting boolean?
 function ENT:ResolveFallbackPos(ply, exiting)
     local target, fb
     if exiting then

@@ -2,7 +2,9 @@ AddCSLuaFile('cl_init.lua')
 AddCSLuaFile('shared.lua')
 include('shared.lua')
 
+---@param ply Player
 ---@param tr WPTraceResult
+---@param ClassName string
 function ENT:SpawnFunction( ply, tr, ClassName )
     if not tr.Hit then return end
     local SpawnPos = tr.HitPos + tr.HitNormal
@@ -10,12 +12,13 @@ function ENT:SpawnFunction( ply, tr, ClassName )
     ent:SetPos(SpawnPos)
     local ang=Angle(0, (ply:GetPos()-SpawnPos):Angle().y, 0)
     ent:SetAngles(ang)
-    Doors:SetupOwner(ply)
+    Doors:SetupOwner(ent,ply)
     ent:Spawn()
     ent:Activate()
     return ent
 end
 
+---@param ply Player
 function ENT:InitializePlayer(ply)
     net.Start("DoorsI-Initialize")
         net.WriteEntity(self)

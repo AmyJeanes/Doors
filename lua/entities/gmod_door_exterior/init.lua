@@ -2,7 +2,10 @@ AddCSLuaFile('cl_init.lua')
 AddCSLuaFile('shared.lua')
 include('shared.lua')
 
+---@param ply Player
 ---@param tr WPTraceResult
+---@param ClassName string
+---@param customData table?
 function ENT:SpawnFunction(ply, tr, ClassName, customData)
     local SpawnPos
     if tr and tr.Hit then
@@ -25,6 +28,7 @@ function ENT:SpawnFunction(ply, tr, ClassName, customData)
     return ent
 end
 
+---@param ply Player
 function ENT:InitializePlayer(ply)
     net.Start("Doors-Initialize")
         net.WriteEntity(self)
@@ -79,6 +83,7 @@ function ENT:Initialize()
     self:CallHook("PostInitialize")
 end
 
+---@param ph PhysObj
 function ENT:PhysicsUpdate(ph)
     self:CallHook("PhysicsUpdate", ph)
 end

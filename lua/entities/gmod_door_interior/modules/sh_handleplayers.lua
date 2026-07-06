@@ -12,6 +12,7 @@ function ENT:PositionInside(pos)
     return false
 end
 
+---@param ply Player
 function ENT:GetStuckTrace(ply)
     local pos=ply:GetPos()
     local td={}
@@ -37,6 +38,7 @@ function ENT:GetStuckTrace(ply)
 end
 
 ---@api
+---@param ply Player
 function ENT:IsStuck(ply)
     if ply:GetMoveType()==MOVETYPE_NOCLIP then return false end
     local td=self:GetStuckTrace(ply)
@@ -55,7 +57,10 @@ end
 -- Position only - no eye writes or hooks. Runs in the predicted unstick path on
 -- both realms (and every client resim), so it must stay pure and idempotent.
 ---@api
+---@param ply Player
+---@param exiting boolean?
 function ENT:ResolveSafePos(ply, exiting)
+    ---@param pos Vector
     local function clear(pos)
         local t = self:GetStuckTrace(ply)
         t.start = pos
@@ -64,6 +69,8 @@ function ENT:ResolveSafePos(ply, exiting)
     end
     -- Settle straight down onto the floor under a clear point (flattened hull so a low
     -- ceiling doesn't block the drop).
+    ---@param top Vector
+    ---@param drop number
     local function floorSnap(top, drop)
         local t = self:GetStuckTrace(ply)
         t.maxs.z = t.mins.z
@@ -114,6 +121,8 @@ function ENT:ResolveSafePos(ply, exiting)
 end
 
 if SERVER then
+    ---@param ply Player
+    ---@param portal linked_portal_door?
     function ENT:CheckPlayer(ply,portal)
         local inbox = self:PositionInside(ply:GetPos())
         if self.occupants[ply] and not inbox then
@@ -286,6 +295,7 @@ if CLIENT then
         end
     end)
 
+    ---@param int gmod_door_interior
     local function renderingOutOwnDoor(int)
         local portals = int.portals
         if not (wp.drawing and portals and wp.drawingent == portals.interior) then return false end

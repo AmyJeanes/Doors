@@ -3,12 +3,17 @@
 if SERVER then
     local meta=assert(FindMetaTable("Entity"))
     meta.OldSetSkin=meta.OldSetSkin or meta.SetSkin
+    ---@param ent Entity
+    ---@param i number
     function meta.SetSkin(ent,i,...)
         meta.OldSetSkin(ent,i,...)
         hook.Call("SkinChanged", GAMEMODE, ent, i, ...)
     end
     
     meta.OldSetBodygroup=meta.OldSetBodygroup or meta.SetBodygroup
+    ---@param ent Entity
+    ---@param bodygroup number
+    ---@param value number
     function meta.SetBodygroup(ent,bodygroup,value,...)
         meta.OldSetBodygroup(ent,bodygroup,value,...)
         hook.Call("BodygroupChanged", GAMEMODE, ent, bodygroup, value, ...)
