@@ -312,7 +312,6 @@ if CLIENT then
         return not (IsValid(int.exterior) and IsValid(int.exterior.insideof))
     end
 
-    ---@param ply Player
     hook.Add("PrePlayerDraw", "doors-handleplayers", function(ply)
         local int=ply.doori
         if not IsValid(int) then return end
@@ -326,14 +325,12 @@ if CLIENT then
         int:CallHook("PreDrawPlayer", ply)
     end)
 
-    ---@param ply Player
     hook.Add("PostPlayerDraw", "doors-handleplayers", function(ply)
         local int=ply.doori
         if not IsValid(int) then return end
         int:CallHook("PostDrawPlayer", ply)
     end)
 
-    ---@param ply Player
     hook.Add("DrawPhysgunBeam", "doors-handleplayers", function(ply)
         local int=ply.doori
         if not IsValid(int) then return end

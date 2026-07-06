@@ -15,7 +15,6 @@ function ENT:Draw()
     end
 end
 
----@param len number
 net.Receive("DoorsI-Initialize", function(len)
     local int=net.ReadEntity()
     local ext=net.ReadEntity()
