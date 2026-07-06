@@ -290,6 +290,8 @@ if SERVER then
         end
     end)
 
+    ---@param portal linked_portal_door
+    ---@param ent Entity
     ENT:AddHook("PostTeleportPortal", "portals", function(self,portal,ent)
         if portal~=self.portals.interior and portal.fallback and ent:IsPlayer() and self:IsStuck(ent) then
             ent:SetPos(self:LocalToWorld(portal.fallback))
@@ -362,6 +364,9 @@ else
         if not self:LocalPlayerInside() then return false end
     end)
     
+    ---@param portal linked_portal_door
+    ---@param exit linked_portal_door
+    ---@param origin Vector
     hook.Add("wp-shouldrender", "doors-portals", function(portal,exit,origin)
         local p=portal:GetParent()
         if IsValid(p) then
@@ -372,6 +377,7 @@ else
         end
     end)
     
+    ---@param portal linked_portal_door
     hook.Add("wp-predraw","doors-portals",function(portal)
         local p=portal:GetParent()
         if IsValid(p) and (p.DoorExterior or p.DoorInterior) and p._init then
@@ -379,6 +385,7 @@ else
         end
     end)
     
+    ---@param portal linked_portal_door
     hook.Add("wp-postdraw","doors-portals",function(portal)
         local p=portal:GetParent()
         if IsValid(p) and (p.DoorExterior or p.DoorInterior) and p._init then
@@ -386,6 +393,10 @@ else
         end
     end)
 
+    ---@param portal linked_portal_door
+    ---@param exitPortal linked_portal_door
+    ---@param plyOrigin Vector
+    ---@param depth number
     hook.Add("wp-prerender","doors-portals",function(portal,exitPortal,plyOrigin,depth)
         local p=portal:GetParent()
         if IsValid(p) and (p.DoorExterior or p.DoorInterior) and p._init then
@@ -393,6 +404,10 @@ else
         end
     end)
 
+    ---@param portal linked_portal_door
+    ---@param exitPortal linked_portal_door
+    ---@param plyOrigin Vector
+    ---@param depth number
     hook.Add("wp-postrender","doors-portals",function(portal,exitPortal,plyOrigin,depth)
         local p=portal:GetParent()
         if IsValid(p) and (p.DoorExterior or p.DoorInterior) and p._init then
@@ -402,6 +417,10 @@ else
 
     -- Route world-portals' per-draw ghost-draw query to the exit portal's parent,
     -- which hosts the emerged half and decides whether it may draw this pass.
+    ---@param ent Entity
+    ---@param ghost Entity
+    ---@param portal linked_portal_door
+    ---@param exit linked_portal_door
     hook.Add("wp-shouldghostdraw","doors-portals",function(ent,ghost,portal,exit)
         local p=IsValid(exit) and exit:GetParent()
         if IsValid(p) and (p.DoorExterior or p.DoorInterior) and p._init then
@@ -409,6 +428,7 @@ else
         end
     end)
 
+    ---@param portal linked_portal_door
     hook.Add("wp-allowthickportal","doors-portals",function(portal)
         local p=portal:GetParent()
         if IsValid(p) and (p.DoorExterior or p.DoorInterior) and p._init then
@@ -420,6 +440,8 @@ end
 -- Shared so world-portals' predicted teleport (SetupMove) can consult it on the
 -- client too, not just the server. Forwards to the parent's ShouldTeleportPortal
 -- chain; the server stays authoritative.
+---@param portal linked_portal_door
+---@param ent Entity
 hook.Add("wp-shouldtp","doors-portals",function(portal,ent)
     local p = portal:GetParent()
     if IsValid(p) and (p.DoorInterior or p.DoorExterior) and p._init then
@@ -427,6 +449,7 @@ hook.Add("wp-shouldtp","doors-portals",function(portal,ent)
     end
 end)
 
+---@param portal linked_portal_door
 hook.Add("wp-trace", "doors-portals", function(portal)
     local p=portal:GetParent()
     if IsValid(p) and (p.DoorExterior or p.DoorInterior) and p._init then
@@ -434,6 +457,7 @@ hook.Add("wp-trace", "doors-portals", function(portal)
     end
 end)
 
+---@param portal linked_portal_door
 hook.Add("wp-tracefilter", "doors-portals", function(portal)
     local p=portal:GetParent()
     if IsValid(p) and (p.DoorExterior or p.DoorInterior) and p._init then
@@ -441,6 +465,10 @@ hook.Add("wp-tracefilter", "doors-portals", function(portal)
     end
 end)
 
+---@param portal linked_portal_door
+---@param ent Entity
+---@param newpos Vector
+---@param newang Angle
 hook.Add("wp-teleport","doors-portals",function(portal,ent,newpos,newang)
     local p=portal:GetParent()
     if IsValid(p) and (p.DoorInterior or p.DoorExterior) and p._init then
@@ -448,6 +476,8 @@ hook.Add("wp-teleport","doors-portals",function(portal,ent,newpos,newang)
     end
 end)
 
+---@param portal linked_portal_door
+---@param ent Entity
 hook.Add("wp-nocollide","doors-portals",function(portal,ent)
     local p=portal:GetParent()
     if IsValid(p) and (p.DoorInterior or p.DoorExterior) and p._init then

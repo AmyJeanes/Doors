@@ -19,6 +19,8 @@ local blacklist={
     ["predicted_viewmodel"] = true
 }
 
+---@param class string
+---@param ent Entity
 ENT:AddHook("Cordon", "cordon", function(self,class,ent)
     if ent.DoorInterior then return false end
 end)

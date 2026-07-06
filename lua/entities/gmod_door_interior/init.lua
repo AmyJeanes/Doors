@@ -31,6 +31,8 @@ function ENT:InitializePlayer(ply)
 end
 
 util.AddNetworkString("DoorsI-Initialize")
+---@param len number
+---@param ply Player
 net.Receive("DoorsI-Initialize", function(len,ply)
     local int=net.ReadEntity() --[[@as gmod_door_interior]]
     if IsValid(int) then

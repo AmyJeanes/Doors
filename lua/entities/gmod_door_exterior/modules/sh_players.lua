@@ -209,6 +209,8 @@ else
     -- Predicted entry (SetupMove): set the player's door fields immediately so the
     -- interior renders this frame - the predicted crossing can land before the server
     -- catches up. The Doors-EnterExit broadcast re-sets the same fields soon after.
+    ---@param portal linked_portal_door
+    ---@param ent Entity
     ENT:AddHook("PostTeleportPortal", "predict", function(self, portal, ent)
         if ent ~= LocalPlayer() then return end
         if not IsValid(self.interior) then return end
@@ -228,6 +230,8 @@ end
 
 -- Shared (not server-only) so a downstream consumer's CanPlayerEnter veto can
 -- predict on the client during world-portals' SetupMove teleport.
+---@param portal linked_portal_door
+---@param ent Entity
 ENT:AddHook("ShouldTeleportPortal", "players", function(self,portal,ent)
     if IsValid(ent) and ent:IsPlayer() and self:CallHook("CanPlayerEnter",ent)==false then
         return false
