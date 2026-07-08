@@ -133,7 +133,7 @@ if CLIENT then
     -- Cache per frame as this may be called many times in a single frame.
     ---@return boolean
     function ENT:RenderingThroughCordonCamera()
-        local fc = FrameNumber()
+        local fc = Doors.FrameNum
         if self._rtcframe ~= fc then
             self._rtcframe = fc
             self._rtc = self.props[LocalPlayer():GetViewEntity()] ~= nil
