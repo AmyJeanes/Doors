@@ -34,7 +34,7 @@ local hooks={}
 ---@overload fun(self: gmod_door_exterior, name: "FindingPositionFailed", id: string, func: fun(self: gmod_door_exterior, arg1: gmod_door_interior, creator: Player, res: any, ...))
 ---@overload fun(self: gmod_door_exterior, name: "FoundPosition", id: string, func: fun(self: gmod_door_exterior, arg1: gmod_door_interior, creator: Player, ...))
 ---@overload fun(self: gmod_door_exterior, name: "Initialize", id: string, func: fun(self: gmod_door_exterior, ...))
----@overload fun(self: gmod_door_exterior, name: "InteriorReady", id: string, func: fun(self: gmod_door_exterior, arg1: boolean, ...))
+---@overload fun(self: gmod_door_exterior, name: "InteriorReady", id: string, func: fun(self: gmod_door_exterior, arg1: gmod_door_interior, ...))
 ---@overload fun(self: gmod_door_exterior, name: "NoCollidePortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ent: Entity, ...))
 ---@overload fun(self: gmod_door_exterior, name: "OnRemove", id: string, func: fun(self: gmod_door_exterior, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PhysicsUpdate", id: string, func: fun(self: gmod_door_exterior, ph: PhysObj, ...))
