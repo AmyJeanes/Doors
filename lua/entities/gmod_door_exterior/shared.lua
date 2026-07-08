@@ -85,6 +85,7 @@ end
 
 ---@api
 ---@param name string
+---@return any
 function ENT:CallHook(name,...)
     if not hooks[name] then return end
     local a,b,c,d,e,f
