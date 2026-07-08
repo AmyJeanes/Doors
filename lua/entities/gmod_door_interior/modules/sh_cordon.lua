@@ -4,6 +4,8 @@
 ---@field props table<Entity, boolean|integer>
 ---@field cordonignore table<Entity, boolean>
 ---@field cordonhidden boolean?
+---@field _rtcframe integer?
+---@field _rtc boolean
 
 ENT:AddHook("Initialize", "cordon", function(self)
     self.props={}
@@ -127,6 +129,18 @@ if CLIENT then
     ---@type table<Entity, doors_cordon_render>
     local cordonRender = setmetatable({}, { __mode = "k" })
 
+    -- Local player's view is through a camera our cordon captured (renders from inside us).
+    -- Cache per frame as this may be called many times in a single frame.
+    ---@return boolean
+    function ENT:RenderingThroughCordonCamera()
+        local fc = FrameNumber()
+        if self._rtcframe ~= fc then
+            self._rtcframe = fc
+            self._rtc = self.props[LocalPlayer():GetViewEntity()] ~= nil
+        end
+        return self._rtc
+    end
+
     -- Recomputed each render pass, never cached - it depends on which view is drawing.
     ---@param interior gmod_door_interior
     ---@param prop Entity
@@ -149,8 +163,8 @@ if CLIENT then
                 end
             end
         end
-        -- otherwise: shown only when the player is inside unless another hook blocks it
-        if not interior:LocalPlayerInside() then return false end
+        -- otherwise: shown when inside, or viewing through our camera, unless a hook blocks it
+        if not interior:LocalPlayerInside() and not interior:RenderingThroughCordonCamera() then return false end
         return interior:CallHook("ShouldDrawCordonProp", prop, LocalPlayer()) ~= false
     end
 

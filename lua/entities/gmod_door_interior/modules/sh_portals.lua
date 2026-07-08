@@ -358,8 +358,8 @@ else
             -- looking in our exterior door: our portals should render, even for a non-occupant
             if rp==self.portals.exterior then return end
         end
-        -- otherwise (own eye view / open world): only someone inside sees our portals
-        if not self:LocalPlayerInside() then return false end
+        -- otherwise (own eye view / open world): only someone inside, or viewing through our camera, sees our portals
+        if not self:LocalPlayerInside() and not self:RenderingThroughCordonCamera() then return false end
     end)
     
     ---@param portal linked_portal_door

@@ -222,7 +222,7 @@ else
     end
 
     ENT:AddHook("ShouldDraw", "handleplayers", function(self)
-        if not self:LocalPlayerInside() and not wp.drawing then
+        if not self:LocalPlayerInside() and not self:RenderingThroughCordonCamera() and not wp.drawing then
             return false
         end
     end)
