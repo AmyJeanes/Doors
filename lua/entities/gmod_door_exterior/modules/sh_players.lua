@@ -183,21 +183,19 @@ else
             end
         end
 
-        if ply~=LocalPlayer() then return end
-        
         if IsValid(ext) and ext._init then
             if enter then
-                ext:CallHook("PlayerEnter")
+                ext:CallHook("PlayerEnter", ply)
             else
-                ext:CallHook("PlayerExit")
+                ext:CallHook("PlayerExit", ply)
             end
         end
-        
+
         if IsValid(int) and int._init then
             if enter then
-                int:CallHook("PlayerEnter")
+                int:CallHook("PlayerEnter", ply)
             else
-                int:CallHook("PlayerExit")
+                int:CallHook("PlayerExit", ply)
             end
         end
     end)
