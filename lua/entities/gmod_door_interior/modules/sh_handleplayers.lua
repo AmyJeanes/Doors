@@ -23,6 +23,9 @@ function ENT:GetStuckTrace(ply)
     -- Use the player's movement mask, not the trace default (MASK_SOLID), which can read a
     -- player wedged in a solid (a TARDIS shell) as ~clear so the unstick falsely "succeeds".
     td.mask=MASK_PLAYERSOLID
+    -- Trace as the player, else the hull default collides with everything and reads a
+    -- pass-through solid (an open COLLISION_GROUP_WORLD door) as a false stuck.
+    td.collisiongroup=COLLISION_GROUP_PLAYER
     -- The StuckFilter hook lets a consumer add networked entities for this trace to
     -- ignore. They must be networked so the predicting client and server build the
     -- same filter - the predicted unstick has to resolve to the same spot on both.
