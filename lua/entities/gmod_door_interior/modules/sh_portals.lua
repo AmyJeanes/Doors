@@ -336,13 +336,15 @@ else
     end)
     
     ENT:AddHook("ShouldDraw", "portals", function(self)
-        local insideof = IsValid(wp.drawingent) and wp.drawingent.exterior and wp.drawingent.exterior.insideof==self and wp.drawingent.interior and wp.drawingent.interior.portals and wp.drawingent.interior.portals.interior==wp.drawingent
-        if wp.drawing and wp.drawingent==self.portals.interior and not (wp.drawingent==self.portals.interior and self.props[self.exterior]) and (not insideof) then
-            return false
-        end
-        if wp.drawing and IsValid(wp.drawingent) and wp.drawingent.interior and wp.drawingent.interior ~= self and wp.drawingent.exterior and wp.drawingent.exterior.insideof~=self then
-            return false
-        end
+        if not wp.drawing then return end
+        local portal = wp.drawingent
+        if not IsValid(portal) then return end
+        -- A shell parked inside us (self-nested, or a child interior): its portal sees our room.
+        if portal.exterior and portal.exterior.insideof == self then return end
+        -- Our interior door shows the world outside, not our room (unless our shell is cordoned in here).
+        if portal == self.portals.interior and not self.props[self.exterior] then return false end
+        -- Any other portal isn't ours, so it can't be showing our room.
+        if portal.interior ~= self then return false end
     end)
 
     ENT:AddHook("ShouldRenderPortal", "portals", function(self)
