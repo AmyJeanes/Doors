@@ -67,53 +67,35 @@ jobs:
           checkout_path: ${{ github.workspace }}/Doors
           category: glua_check
 
-  build:
-    name: Build
+  setup:
+    name: Resolve workshop target
     runs-on: ubuntu-latest
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/dev') || github.event.inputs.publish == 'true'
+    outputs:
+      id: ${{ steps.pick.outputs.id }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          path: ${{ github.repository }}
-
-      - name: Checkout world-portals
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          repository: AmyJeanes/world-portals
-          ref: dev
-          path: world-portals
-
-      - name: Combine files
-        run: |
-          mkdir -p $combined
-          cp -r ${{ github.workspace }}/world-portals/* $combined
-          cp -r ${{ github.workspace }}/${{ github.repository }}/* $combined
-
-          ls -laR $combined
-        env:
-          combined: ${{ github.workspace }}/combined
-
-      - name: Set workshop addon id
-        id: workshop_id
-        if: (github.event_name == 'push' && contains(fromJSON('["refs/heads/dev"]'), github.ref)) || github.event.inputs.publish == 'true'
+      - name: Pick workshop id
+        id: pick
         run: |
           if [[ "${{ github.event.inputs.addon }}" == "beta" || "${{ github.ref }}" == "refs/heads/dev" ]]; then
-            WORKSHOP_ID=${{ vars.BETA_WORKSHOP_ID }}
+            echo "id=${{ vars.BETA_WORKSHOP_ID }}" >> "$GITHUB_OUTPUT"
           else
             echo "Unknown workshop ID" 1>&2
             exit 1
           fi
 
-          echo "Publishing to workshop ID $WORKSHOP_ID"
-          echo "WORKSHOP_ID=$WORKSHOP_ID" >> $GITHUB_OUTPUT
-
-      - uses: AmyJeanes/gmod-upload@c660f7674019f7f19246ab87b69124d209f74665 # main
-        name: Publish to workshop
-        with:
-          id: ${{ steps.workshop_id.outputs.WORKSHOP_ID }}
-          changelog: "${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
-          folder: ${{ github.workspace }}/combined
-          dry-run: ${{ steps.workshop_id.outputs.WORKSHOP_ID == '' }}
-        env:
-          STEAM_USERNAME: ${{ vars.STEAM_USERNAME }}
-          STEAM_PASSWORD: ${{ secrets.STEAM_PASSWORD }}
+  publish:
+    name: Publish to workshop
+    needs: setup
+    uses: AmyJeanes/gmod-addon-tools/.github/workflows/publish-workshop.yml@v0.23.0
+    with:
+      addon: Doors
+      workshop_id: ${{ needs.setup.outputs.id }}
+      mfa: false
+      dry_run: ${{ needs.setup.outputs.id == '' }}
+      merge_repo: AmyJeanes/world-portals
+      merge_ref: dev
+    secrets:
+      STEAM_USERNAME: ${{ vars.STEAM_USERNAME }}
+      STEAM_PASSWORD: ${{ secrets.STEAM_PASSWORD }}
+      HA_WEBHOOK_URL: ${{ secrets.HA_WEBHOOK_URL }}
