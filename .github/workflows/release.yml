@@ -1,21 +1,25 @@
 name: Release to Workshop
 
 on:
-  push:
-    branches: [release]
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       dry_run:
         description: "Test the code round-trip + Steam login but skip the actual Workshop upload"
         type: boolean
         default: false
+      tag:
+        description: "Preview only: resolve this release tag's notes and log the change note (no login, no upload)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
   publish:
-    uses: AmyJeanes/gmod-addon-tools/.github/workflows/publish-workshop.yml@v0.23.0
+    uses: AmyJeanes/gmod-addon-tools/.github/workflows/publish-workshop.yml@v0.25.0
     with:
       addon: "Doors"
       workshop_id: "499280258"
@@ -23,6 +27,10 @@ jobs:
       dry_run: ${{ github.event.inputs.dry_run == 'true' }}
       merge_repo: AmyJeanes/world-portals
       merge_ref: release
+      version: ${{ github.event.release.tag_name }}
+      release_url: ${{ github.event.release.html_url }}
+      release_body: ${{ github.event.release.body }}
+      preview_tag: ${{ github.event.inputs.tag }}
     secrets:
       STEAM_USERNAME: ${{ secrets.STEAM_RELEASE_USERNAME }}
       STEAM_PASSWORD: ${{ secrets.STEAM_RELEASE_PASSWORD }}
