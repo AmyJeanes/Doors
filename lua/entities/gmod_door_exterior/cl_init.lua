@@ -19,9 +19,11 @@ net.Receive("Doors-Initialize", function(len)
     local ext=net.ReadEntity()
     local int=net.ReadEntity()
     local ply=net.ReadEntity()
-    if IsValid(ext) and IsValid(ply) then
+    if IsValid(ext) then
         ext.interior=int
-        Doors:SetupOwner(ext,ply)
+        if IsValid(ply) then
+            Doors:SetupOwner(ext,ply)
+        end
         ext.phys=ext:GetPhysicsObject()
         ext._ready=true
         if IsValid(int) then

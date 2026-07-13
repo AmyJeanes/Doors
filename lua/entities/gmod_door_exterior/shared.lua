@@ -4,6 +4,7 @@
 ---@field interior gmod_door_interior?
 ---@field Portal doors_portal_side?
 ---@field initqueue table
+---@field _creatorsteamid string?
 
 ENT.Type = "anim"
 if WireLib then

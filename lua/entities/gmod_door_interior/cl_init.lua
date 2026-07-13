@@ -23,7 +23,9 @@ net.Receive("DoorsI-Initialize", function(len)
     int:SetPos(intpos)
     if IsValid(int) and IsValid(ext) then
         int.exterior=ext
-        Doors:SetupOwner(int,ply)
+        if IsValid(ply) then
+            Doors:SetupOwner(int,ply)
+        end
         int.phys=int:GetPhysicsObject()
         int._ready=true
         int._init=ext._ready
