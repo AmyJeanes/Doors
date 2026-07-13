@@ -4,6 +4,50 @@
 ---@field door gmod_door_exterior?
 ---@field doori gmod_door_interior?
 
+local DOORWAY_CLEARANCE = 48
+
+-- Fan a batch of placements out to clear ground so occupants placed at once (forced
+-- exit/enter, or everyone as the door is removed) don't stack on the single fallback point.
+---@param ply Player
+---@param origin Vector
+---@param avoid Vector? doorway to steer clear of
+---@return Vector
+function ENT:ResolveClearPos(ply, origin, avoid)
+    local int = self.interior
+    ---@param pos Vector
+    ---@param drop boolean?
+    ---@return TraceResult
+    local function hull(pos, drop)
+        local td
+        if IsValid(int) then
+            td = int:GetStuckTrace(ply)
+        else -- interior gone (removed with us): a plain player hull is enough
+            td = { mins = ply:OBBMins(), maxs = ply:OBBMaxs(),
+                mask = MASK_PLAYERSOLID, collisiongroup = COLLISION_GROUP_PLAYER, filter = { ply } }
+        end
+        if drop then td.maxs = Vector(td.maxs.x, td.maxs.y, td.mins.z) end
+        td.start = pos
+        td.endpos = drop and pos - Vector(0, 0, 96) or pos
+        return util.TraceHull(td --[[@as HullTrace]])
+    end
+
+    if not hull(origin).Hit then return origin end
+    for radius = 24, 216, 24 do
+        for i = 0, 11 do
+            local a = (i / 12) * math.pi * 2
+            local ring = origin + Vector(math.cos(a), math.sin(a), 0) * radius
+            if not (avoid and ring:Distance2D(avoid) < DOORWAY_CLEARANCE) then
+                local snap = hull(ring + Vector(0, 0, 12), true)
+                -- don't settle onto another player's head (vertical stacking)
+                if not (IsValid(snap.Entity) and snap.Entity:IsPlayer()) and not hull(snap.HitPos).Hit then
+                    return snap.HitPos
+                end
+            end
+        end
+    end
+    return origin
+end
+
 ---@api
 ---@param ply Player
 ---@param exiting boolean?
@@ -16,14 +60,18 @@ function ENT:ResolveFallbackPos(ply, exiting)
     end
     if not target then return end
     if not fb then return end
+    -- doorway to steer the fan-out clear of: interior portal on entry, exterior on exit
+    local avoid
+    if IsValid(self.interior) and self.interior.portals then
+        local p = exiting and self.interior.portals.exterior or self.interior.portals.interior
+        if IsValid(p) then avoid = p:GetPos() end
+    end
     local newpos = target:LocalToWorld(fb.pos)
     local height = ply:OBBMaxs().z
     local up = Vector(0, 0, height)
     up:Rotate(Angle(0, 0, target:GetAngles().r))
-    -- Roll compensation: the player stays world-upright while the frame can be
-    -- rolled, so lower them by half the height lost to the roll to keep the eyeline
-    -- level. A no-op for the common unrolled frame.
-    return newpos + Vector(0, 0, (up.z - height) / 2)
+    -- roll compensation: keep the eyeline level when the frame's rolled (no-op unrolled)
+    return self:ResolveClearPos(ply, newpos + Vector(0, 0, (up.z - height) / 2), avoid)
 end
 
 if SERVER then
