@@ -3,10 +3,10 @@ name: CI
 on:
   pull_request:
     branches:
-      - dev
+      - main
   push:
     branches:
-      - dev
+      - main
       - renovate/*
   workflow_dispatch:
     inputs:
@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: AmyJeanes/world-portals
-          ref: dev
+          ref: main
           path: world-portals
 
       - name: Checkout wire
@@ -70,14 +70,14 @@ jobs:
   setup:
     name: Resolve workshop target
     runs-on: ubuntu-latest
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/dev') || github.event.inputs.publish == 'true'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.publish == 'true'
     outputs:
       id: ${{ steps.pick.outputs.id }}
     steps:
       - name: Pick workshop id
         id: pick
         run: |
-          if [[ "${{ github.event.inputs.addon }}" == "beta" || "${{ github.ref }}" == "refs/heads/dev" ]]; then
+          if [[ "${{ github.event.inputs.addon }}" == "beta" || "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "id=${{ vars.BETA_WORKSHOP_ID }}" >> "$GITHUB_OUTPUT"
           else
             echo "Unknown workshop ID" 1>&2
@@ -98,7 +98,7 @@ jobs:
       mfa: false
       dry_run: ${{ needs.setup.outputs.id == '' }}
       merge_repo: AmyJeanes/world-portals
-      merge_ref: dev
+      merge_ref: main
     secrets:
       STEAM_USERNAME: ${{ vars.STEAM_USERNAME }}
       STEAM_PASSWORD: ${{ secrets.STEAM_PASSWORD }}
