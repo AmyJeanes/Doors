@@ -509,6 +509,9 @@ local function applyGain(handle)
     end
 end
 
+-- "has a channel", which a handle does not for the frame or two its load is in flight. So don't gate
+-- per-frame updates to a handle on this: they would all be skipped until the channel already exists,
+-- leaving it to start at whatever the volume was when it was created and jump on the next frame.
 function MANAGED:IsValid()
     return IsValid(self.chan)
 end
