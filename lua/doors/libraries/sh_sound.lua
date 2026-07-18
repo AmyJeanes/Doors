@@ -24,6 +24,7 @@
 ---@field volume number? max volume 0-1, default 1
 ---@field level number? SNDLVL for distance falloff, default 75 (EmitSound's default)
 ---@field resumable boolean? play through a managed BASS channel instead of the engine, so the sound survives the listener jumping across the interior void - a door portal crossing or the exterior view toggle - which culls a normal engine sound. Returns a handle
+---@field loop boolean? repeat until stopped, from the loop point the file's author baked in. Implies resumable: a loop is by definition long enough to be caught by the listener jumping
 ---@field owner Entity? owner, for group-stop via Doors:StopSounds (a resumable sound also stops when its owner is removed)
 ---@field tag string? group label for Doors:StopSounds, e.g. "teleport"
 ---@field pin_on_jump number? resumable only, with ent: the sound pins where the entity vanished from once it moves faster than this (units/second) - a teleporting emitter leaves its tail behind, e.g. the demat echo a bystander hears. A speed, not a distance: interpolation renders a client-side teleport as a short impossibly-fast slide, never a single-frame jump
@@ -160,6 +161,14 @@ end
 ---@field omni boolean true for a stereo .wav - Source plays it omnidirectional (mono, no pan, unobscured)
 ---@field sp_paused boolean? true while parked by the SP-pause watcher
 ---@field stopped boolean
+---@field loop boolean? repeats until stopped
+---@field loop_start number seconds into the file its loop begins, 0 for a plain whole-file loop
+---@field fade_to number? volume being faded toward
+---@field fade_left number? seconds of fade remaining
+---@field stop_when_faded boolean? stop the sound once the running fade finishes
+---@field rate number current playback rate, 1 = the file's own pitch
+---@field rate_to number? playback rate being eased toward
+---@field rate_ease number? seconds the rate ease takes to close most of the gap
 local MANAGED = {}
 MANAGED.__index = MANAGED
 
@@ -200,42 +209,84 @@ local function sourcePos(handle)
     return handle.pos or handle.last_pos
 end
 
--- Source plays a positioned STEREO .wav as CHAR_OMNI (S_SetChannelStereo, snd_dma.cpp): omnidirectional,
--- so it's full mono (no left/right panning), distance-attenuated only, and never occluded. A stereo OGG/MP3
--- is NOT omni (IsStereoWav excludes them) - it spatialises normally. Match that by detecting a stereo .wav
--- from its header (canonical RIFF: channel count is the 16-bit LE at offset 22), cached per path.
--- Channel count from a RIFF/WAVE byte string. Walks the chunk list to find "fmt " rather than assuming
--- the canonical offset, so a WAV with extra chunks (LIST/fact/JUNK) before fmt still reads correctly.
+-- What we need from a .wav's header, read once per path:
+--
+-- Channel count, because Source plays a positioned STEREO .wav as CHAR_OMNI (S_SetChannelStereo,
+-- snd_dma.cpp): omnidirectional, so it's full mono (no left/right panning), distance-attenuated only,
+-- and never occluded. A stereo OGG/MP3 is NOT omni (IsStereoWav excludes them) - it spatialises normally.
+--
+-- And the loop point, because the engine loops a .wav from the marker its author baked in (a `smpl`
+-- loop or a `cue ` point), not from the start. Most are marked at sample 0, which is a plain whole-file
+-- loop, but an asset can open with an intro and loop only the part after it - and BASS's own looping
+-- always wraps to 0, which would replay that intro every cycle. loopStart lets the caller correct it.
+--
+-- Chunks are walked rather than read at canonical offsets, so a file with extra chunks (LIST/fact/JUNK)
+-- before `fmt ` still reads correctly.
 ---@param data string
----@return number? channels, nil if not a parseable WAV
-local function wavChannels(data)
+---@return number? channels nil if not a parseable WAV
+---@return number? loopStartSamples nil if the file carries no loop marker
+---@return number? sampleRate
+local function wavInfo(data)
     if #data < 16 or data:sub(1, 4) ~= "RIFF" or data:sub(9, 12) ~= "WAVE" then return nil end
+    ---@param o number
+    ---@return number
+    local function u32(o)
+        return data:byte(o) + data:byte(o+1)*256 + data:byte(o+2)*65536 + data:byte(o+3)*16777216
+    end
+    local channels, rate, loopStart
     local pos = 13 -- first chunk id (byte 13 = file offset 12)
     while pos + 8 <= #data do
-        local size = data:byte(pos+4) + data:byte(pos+5)*256 + data:byte(pos+6)*65536 + data:byte(pos+7)*16777216
-        if data:sub(pos, pos + 3) == "fmt " and pos + 11 <= #data then
-            return data:byte(pos + 10) + data:byte(pos + 11) * 256 -- fmt: audioFormat(2), then channels(2)
+        local id, size = data:sub(pos, pos + 3), u32(pos + 4)
+        local body = pos + 8
+        if id == "fmt " and body + 11 <= #data then
+            channels = data:byte(body + 2) + data:byte(body + 3) * 256 -- audioFormat(2), then channels(2)
+            rate = u32(body + 4)
+        elseif id == "smpl" and body + 35 <= #data then
+            local loops = u32(body + 28)
+            if loops > 0 and body + 47 <= #data then
+                loopStart = u32(body + 44) -- first loop's dwStart
+            end
+        elseif id == "cue " and body + 3 <= #data then
+            local n = u32(body)
+            -- lowest cue offset; a marker at 0 is the common whole-file case
+            for i = 0, math.min(n, 64) - 1 do
+                local off = body + 4 + i * 24 + 20 -- dwSampleOffset within the cue point
+                if off + 3 <= #data then
+                    local s = u32(off)
+                    loopStart = loopStart and math.min(loopStart, s) or s
+                end
+            end
         end
-        pos = pos + 8 + size + (size % 2) -- chunks are word-aligned
+        pos = body + size + (size % 2) -- chunks are word-aligned
     end
-    return nil
+    return channels, loopStart, rate
 end
 
-local stereoWavCache = {}
+---@class doors_wav_header
+---@field omni boolean stereo .wav, which Source plays omnidirectional
+---@field loop_start number seconds into the file that its baked-in loop marker starts at, 0 if none
+
+local wavCache = {} ---@type table<string, doors_wav_header>
 ---@param path string sound path relative to sound/
----@return boolean
-local function isStereoWav(path)
-    if stereoWavCache[path] == nil then
-        local stereo = false
-        if string.EndsWith(path:lower(), ".wav") then
-            local data = file.Read("sound/" .. path, "GAME")
+---@return doors_wav_header
+local function wavHeader(path)
+    local cached = wavCache[path]
+    if cached then return cached end
+    local info = { omni = false, loop_start = 0 }
+    if string.EndsWith(path:lower(), ".wav") then
+        local data = file.Read("sound/" .. path, "GAME")
+        if data == nil then
             -- unreadable .wav (e.g. a mount file.Read can't reach): assume stereo, since almost every
-            -- teleport .wav is - so it defaults to omni, matching what Source does with a stereo wav.
-            stereo = data == nil or wavChannels(data) == 2
+            -- one is - so it defaults to omni, matching what Source does with a stereo wav
+            info.omni = true
+        else
+            local channels, loopStart, rate = wavInfo(data)
+            info.omni = channels == 2
+            if loopStart and rate and rate > 0 then info.loop_start = loopStart / rate end
         end
-        stereoWavCache[path] = stereo
     end
-    return stereoWavCache[path]
+    wavCache[path] = info
+    return info
 end
 
 -- Source's stereo spatialisation, ported from CAudioDeviceBase::SpatializeChannel + GetSpeakerVol
@@ -396,12 +447,49 @@ function MANAGED:IsPlaying()
     return IsValid(self.chan) and self.chan:GetState() == GMOD_CHANNEL_PLAYING
 end
 
+-- BASS has a slide of its own, but GMod doesn't expose it, so a fade is run from the Think loop below -
+-- the same place the distance gain is already rewritten every frame, so it costs nothing extra.
 ---@param volume number
-function MANAGED:SetVolume(volume)
+---@param time number? seconds to fade over; omitted or 0 applies it immediately
+function MANAGED:SetVolume(volume, time)
+    if time and time > 0 then
+        self.fade_to = volume
+        self.fade_left = time
+        return
+    end
+    self.fade_to, self.fade_left, self.stop_when_faded = nil, nil, nil
     self.base = volume
     self.volume = volume
     if IsValid(self.chan) then
         self.chan:SetVolume(volume)
+    end
+end
+
+-- Fade out and stop, for a loop that shouldn't just cut off.
+---@param time number seconds
+function MANAGED:FadeOut(time)
+    if not (time and time > 0) then return self:Stop() end
+    self.fade_to = 0
+    self.fade_left = time
+    self.stop_when_faded = true
+end
+
+-- Playback rate doubles as pitch, the same way Source's pitch does - both resample, so speed and pitch
+-- move together. `ease` matches the engine's own pitch glide: a target this eases toward rather than
+-- snaps to, which keeps a per-frame target (flight speed, doppler) from arriving as steps.
+---@param pitch number percent, 100 = the file's own pitch
+---@param ease number? seconds to glide over; omitted or 0 applies it immediately
+function MANAGED:SetPitch(pitch, ease)
+    local rate = math.max(pitch, 1) / 100
+    if ease and ease > 0 then
+        self.rate_to = rate
+        self.rate_ease = ease
+        return
+    end
+    self.rate_to, self.rate_ease = nil, nil
+    self.rate = rate
+    if IsValid(self.chan) then
+        self.chan:SetPlaybackRate(rate)
     end
 end
 
@@ -425,6 +513,7 @@ local last_think_frame = 0
 ---@param opts doors_sound_opts
 ---@return doors_managed_sound
 local function playManaged(opts)
+    local header = wavHeader(opts.path)
     ---@type doors_managed_sound
     local handle = setmetatable({
         owner = opts.owner,
@@ -438,7 +527,10 @@ local function playManaged(opts)
         pin_on_jump = opts.pin_on_jump,
         attach = opts.attach,
         attach_dist = opts.attach_dist or 500,
-        omni = isStereoWav(opts.path),
+        omni = header.omni,
+        loop = opts.loop,
+        loop_start = header.loop_start,
+        rate = 1,
         stopped = false,
     }, MANAGED)
     table.insert(Doors.ActiveManagedSounds, handle)
@@ -451,7 +543,14 @@ local function playManaged(opts)
             if IsValid(chan) then chan:Stop() end
         elseif IsValid(chan) then
             handle.chan = chan
+            if handle.loop then
+                chan:EnableLooping(true)
+                -- an asset that opens with an intro loops from a marker partway in, but BASS always
+                -- wraps to the start, so the Think loop seeks it back; start there too on the first
+                -- pass only if the caller asked to skip the intro - it doesn't, so the intro plays once
+            end
             applyGain(handle, chan)
+            if handle.rate ~= 1 then chan:SetPlaybackRate(handle.rate) end
             chan:Play()
             -- the async load can complete mid-pause; start parked so it doesn't play into the pause
             if sp_paused then
@@ -470,7 +569,8 @@ end
 ---@param opts doors_sound_opts
 ---@return doors_managed_sound? handle to a resumable sound, so callers can stop or track that exact sound
 function Doors:PlaySound(opts)
-    if opts.resumable then
+    -- a loop always needs the managed channel: it plays long enough for the listener to cross the void
+    if opts.resumable or opts.loop then
         return playManaged(opts)
     end
     playNative(opts)
@@ -521,6 +621,64 @@ net.Receive("Doors-SoundStop", function()
     Doors:StopSounds(owner, tag ~= "" and tag or nil)
 end)
 
+-- Advance a running volume fade. Linear over the requested time, stepped by frame rather than clock so
+-- it freezes with the game like the sound itself does.
+---@param handle doors_managed_sound
+local function stepFade(handle)
+    local left = handle.fade_left
+    if not left then return end
+    local dt = math.min(FrameTime(), left)
+    local target = handle.fade_to or handle.base
+    handle.base = handle.base + (target - handle.base) * (dt / left)
+    left = left - dt
+    if left <= 0 then
+        handle.base = target
+        handle.fade_to, handle.fade_left = nil, nil
+        if handle.stop_when_faded then
+            handle.stop_when_faded = nil
+            handle:Stop()
+        end
+    else
+        handle.fade_left = left
+    end
+end
+
+-- Ease the playback rate toward its target instead of snapping, so a per-frame pitch target (flight
+-- speed plus doppler, both jittery) doesn't arrive as steps. Exponential, so it closes most of the gap
+-- within the requested time and settles without overshoot.
+---@param handle doors_managed_sound
+---@param chan IGModAudioChannel
+local function stepRate(handle, chan)
+    local target = handle.rate_to
+    if not target then return end
+    local ease = handle.rate_ease or 0.1
+    handle.rate = Lerp(math.min(FrameTime() / ease, 1), handle.rate, target)
+    if math.abs(handle.rate - target) < 0.001 then
+        handle.rate = target
+        handle.rate_to = nil
+    end
+    chan:SetPlaybackRate(handle.rate)
+end
+
+-- Keep a loop on the part of the file its author marked, when that isn't the whole file. BASS wraps to
+-- the start, so an asset that opens with an intro would replay it every cycle; seek back to the marker
+-- just before the end instead, which trims a few milliseconds of tail rather than leaking the intro.
+-- The post-wrap check is the backstop for a frame missed at exactly the wrong moment.
+---@param handle doors_managed_sound
+---@param chan IGModAudioChannel
+local function keepLoopPoint(handle, chan)
+    local start = handle.loop_start
+    if start <= 0 then return end
+    local len = chan:GetLength()
+    if len <= start then return end
+    local t = chan:GetTime()
+    if t < start then
+        chan:SetTime(start)
+    elseif len - t <= FrameTime() * 2 then
+        chan:SetTime(start)
+    end
+end
+
 hook.Add("Think", "doors_managed_sounds", function()
     last_think_frame = FrameNumber()
     local list = Doors.ActiveManagedSounds
@@ -534,7 +692,12 @@ hook.Add("Think", "doors_managed_sounds", function()
             if not IsValid(chan) or chan:GetState() == GMOD_CHANNEL_STOPPED then
                 drop(handle)
             else
-                applyGain(handle, chan)
+                stepFade(handle)
+                if not handle.stopped then -- a fade can end in a stop, which drops the handle
+                    stepRate(handle, chan)
+                    if handle.loop then keepLoopPoint(handle, chan) end
+                    applyGain(handle, chan)
+                end
             end
         end
     end
