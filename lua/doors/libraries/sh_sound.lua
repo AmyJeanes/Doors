@@ -163,6 +163,7 @@ end
 ---@field stopped boolean
 ---@field loop boolean? repeats until stopped
 ---@field loop_start number seconds into the file its loop begins, 0 for a plain whole-file loop
+---@field loop_prev number? last frame's play position, to catch the wrap back to the file's start
 ---@field fade_to number? volume being faded toward
 ---@field fade_left number? seconds of fade remaining
 ---@field stop_when_faded boolean? stop the sound once the running fade finishes
@@ -543,12 +544,9 @@ local function playManaged(opts)
             if IsValid(chan) then chan:Stop() end
         elseif IsValid(chan) then
             handle.chan = chan
-            if handle.loop then
-                chan:EnableLooping(true)
-                -- an asset that opens with an intro loops from a marker partway in, but BASS always
-                -- wraps to the start, so the Think loop seeks it back; start there too on the first
-                -- pass only if the caller asked to skip the intro - it doesn't, so the intro plays once
-            end
+            -- BASS does the looping itself, on its own thread; the Think loop only gets involved for a
+            -- file whose loop begins partway in, to send the wrap back to the marker
+            if handle.loop then chan:EnableLooping(true) end
             applyGain(handle, chan)
             if handle.rate ~= 1 then chan:SetPlaybackRate(handle.rate) end
             chan:Play()
@@ -660,22 +658,24 @@ local function stepRate(handle, chan)
     chan:SetPlaybackRate(handle.rate)
 end
 
--- Keep a loop on the part of the file its author marked, when that isn't the whole file. BASS wraps to
--- the start, so an asset that opens with an intro would replay it every cycle; seek back to the marker
--- just before the end instead, which trims a few milliseconds of tail rather than leaking the intro.
--- The post-wrap check is the backstop for a frame missed at exactly the wrong moment.
+-- Keep a loop on the part of the file its author marked, when that isn't the whole file. The intro is
+-- meant to be heard once, so the first pass is left alone; BASS then wraps to the start of the file
+-- rather than to the marker, so catch the wrap - the play position jumping backwards - and send it to
+-- the marker. Correcting after the wrap rather than seeking before the end matters: the sound is never
+-- cut short, and only the very top of the intro can slip through, for at most the one frame between the
+-- wrap and this running. Whole-file loops (the overwhelming majority) never reach here at all - BASS
+-- loops those itself, on its own thread, with no help from Lua.
 ---@param handle doors_managed_sound
 ---@param chan IGModAudioChannel
 local function keepLoopPoint(handle, chan)
     local start = handle.loop_start
     if start <= 0 then return end
-    local len = chan:GetLength()
-    if len <= start then return end
     local t = chan:GetTime()
-    if t < start then
+    local prev = handle.loop_prev
+    handle.loop_prev = t
+    if prev and t < prev and t < start then
         chan:SetTime(start)
-    elseif len - t <= FrameTime() * 2 then
-        chan:SetTime(start)
+        handle.loop_prev = start
     end
 end
 
