@@ -529,10 +529,9 @@ function MANAGED:SetVolume(volume, time)
     end
     self.fade_to, self.fade_left, self.stop_when_faded = nil, nil, nil
     self.base = volume
-    self.volume = volume
-    if IsValid(self.chan) then
-        self.chan:SetVolume(volume)
-    end
+    -- go through the gain path rather than writing the channel: the caller's volume is the pre-distance
+    -- one, so writing it straight to the channel would play a far-off sound at full volume
+    applyGain(self)
 end
 
 -- Fade out and stop, for a loop that shouldn't just cut off.
