@@ -143,7 +143,56 @@ local function sndLevelGain(dist, level)
     return gain
 end
 
+-- A file whose loop begins partway in can't be looped correctly by BASS, which always wraps to sample
+-- zero - and no amount of seeking from Lua fixes that, because the position we can observe isn't the
+-- one being heard. So hand BASS a file that *is* the loop: copy the samples from the marker onwards
+-- into data/ once, and loop that whole-file, with nothing per-frame involved. PCM wav only, which is
+-- all that carries a marker anyway. The cache key includes the source size so an updated asset
+-- rebuilds instead of playing a stale body forever.
+---@param path string
+---@param from number seconds to trim off the front
+---@return string? dataPath relative to data/, nil if the file can't be trimmed
+local function loopBodyFile(path, from)
+    local src = file.Read("sound/" .. path, "GAME")
+    if not src then return nil end
+    local key = "doors_loopcache/" .. util.CRC(path .. "_" .. #src) .. ".wav"
+    if file.Exists(key, "DATA") then return key end
+
+    ---@param o number
+    ---@return number
+    local function u(o) return src:byte(o) + src:byte(o+1)*256 + src:byte(o+2)*65536 + src:byte(o+3)*16777216 end
+    local pos, fmtChunk, dataOff, dataLen, rate, channels, bits = 13, nil, nil, nil, 0, 0, 0
+    while pos + 8 <= #src do
+        local id, size = src:sub(pos, pos + 3), u(pos + 4)
+        if id == "fmt " then
+            fmtChunk = src:sub(pos, pos + 8 + size - 1)
+            channels = src:byte(pos + 10) + src:byte(pos + 11) * 256
+            rate = u(pos + 12)
+            bits = src:byte(pos + 22) + src:byte(pos + 23) * 256
+        elseif id == "data" then
+            dataOff, dataLen = pos + 8, size
+        end
+        pos = pos + 8 + size + (size % 2)
+    end
+    if not (fmtChunk and dataOff and dataLen and rate > 0 and bits > 0 and channels > 0) then return nil end
+
+    local frameBytes = (bits / 8) * channels
+    local body = src:sub(dataOff + math.floor(from * rate) * frameBytes, dataOff + dataLen - 1)
+    if #body < frameBytes then return nil end
+    ---@param v number
+    ---@return string
+    local function n(v)
+        return string.char(v % 256, math.floor(v / 256) % 256, math.floor(v / 65536) % 256,
+            math.floor(v / 16777216) % 256)
+    end
+    file.CreateDir("doors_loopcache")
+    file.Write(key, "RIFF" .. n(4 + #fmtChunk + 8 + #body) .. "WAVE" .. fmtChunk .. "data" .. n(#body) .. body)
+    return file.Exists(key, "DATA") and key or nil
+end
+
 ---@class doors_managed_sound
+---@field intro IGModAudioChannel? the original file, playing the part before the loop marker; handed over to chan and dropped
+---@field xfade number? progress 0-1 of the intro handing over to the loop
 ---@field chan IGModAudioChannel? nil while the async load is still in flight
 ---@field owner Entity?
 ---@field tag string?
@@ -163,7 +212,7 @@ end
 ---@field stopped boolean
 ---@field loop boolean? repeats until stopped
 ---@field loop_start number seconds into the file its loop begins, 0 for a plain whole-file loop
----@field loop_prev number? last frame's play position, to catch the wrap back to the file's start
+---@field body IGModAudioChannel? the trimmed loop body, waiting for the intro to hand over to it
 ---@field fade_to number? volume being faded toward
 ---@field fade_left number? seconds of fade remaining
 ---@field stop_when_faded boolean? stop the sound once the running fade finishes
@@ -263,6 +312,13 @@ local function wavInfo(data)
     return channels, loopStart, rate
 end
 
+-- How long an intro takes to hand over to the looping body. Its job is to leave no hard boundary for a
+-- late frame to miss, so it stays a fade even at a bad frame rate; much below this it collapses into a
+-- single step and becomes a splice again. It doubles as the threshold for bothering at all: an intro
+-- shorter than its own handover would never be heard, and those markers are encoder artefacts rather
+-- than authored intros anyway.
+local HANDOVER = 0.15
+
 ---@class doors_wav_header
 ---@field omni boolean stereo .wav, which Source plays omnidirectional
 ---@field loop_start number seconds into the file that its baked-in loop marker starts at, 0 if none
@@ -283,7 +339,12 @@ local function wavHeader(path)
         else
             local channels, loopStart, rate = wavInfo(data)
             info.omni = channels == 2
-            if loopStart and rate and rate > 0 then info.loop_start = loopStart / rate end
+            if loopStart and rate and rate > 0 then
+                local secs = loopStart / rate
+                -- too short to outlast its own handover: treat it as a whole-file loop, which is the
+                -- simple path and what such a marker means in practice
+                info.loop_start = secs > HANDOVER and secs or 0
+            end
         end
     end
     wavCache[path] = info
@@ -413,30 +474,38 @@ local function targetVolume(handle)
 end
 
 local OMNI_ENVELOPE = 0.9   -- GetSpeakerVol's fully-mono target per front speaker (both sides equal)
--- Apply this frame's level and pan to the channel. targetVolume is Source's pre-spatialisation scalar
--- gain; the spatialiser then splits it into the left/right the engine would produce, mapped onto a stereo
--- BASS channel via SetVolume (the louder side) + SetPan (the ratio between them).
+-- Apply this frame's level and pan. targetVolume is Source's pre-spatialisation scalar gain; the
+-- spatialiser then splits it into the left/right the engine would produce, mapped onto a stereo BASS
+-- channel via SetVolume (the louder side) + SetPan (the ratio between them). While an intro is handing
+-- over to its loop both channels are live, so each gets the same placement at its share of the volume -
+-- an equal-power split, which holds the loudness steady across the handover.
 ---@param handle doors_managed_sound
----@param chan IGModAudioChannel
-local function applyGain(handle, chan)
+local function applyGain(handle)
     local scalar = targetVolume(handle)
     local pos = sourcePos(handle)
+    local pan = 0
     if pos and handle.omni then
         -- CHAR_OMNI: mono, both channels equal, no pan - only the distance gain varies
         handle.volume = scalar * OMNI_ENVELOPE
-        chan:SetVolume(handle.volume)
-        chan:SetPan(0)
     elseif pos then
         local radius = IsValid(handle.ent) and handle.ent:GetModelRadius() or 0
         local lf, rf = spatialize(pos, radius)
         local m = math.max(lf, rf, 0.0001)
         handle.volume = scalar * m
-        chan:SetVolume(handle.volume)
-        chan:SetPan((rf - lf) / m)
+        pan = (rf - lf) / m
     else
         handle.volume = scalar
-        chan:SetVolume(scalar)
-        chan:SetPan(0)
+    end
+
+    local x = handle.xfade
+    local main, intro = handle.chan, handle.intro
+    if main ~= nil and IsValid(main) then
+        main:SetVolume(handle.volume * (x and math.sin(x * math.pi / 2) or 1))
+        main:SetPan(pan)
+    end
+    if intro ~= nil and IsValid(intro) then
+        intro:SetVolume(handle.volume * (x and math.cos(x * math.pi / 2) or 1))
+        intro:SetPan(pan)
     end
 end
 
@@ -499,6 +568,11 @@ function MANAGED:Stop()
     if IsValid(self.chan) then
         self.chan:Stop()
     end
+    -- an intro still handing over to its loop has to go too
+    if IsValid(self.intro) then
+        self.intro:Stop()
+    end
+    self.intro = nil
     drop(self)
 end
 
@@ -536,29 +610,55 @@ local function playManaged(opts)
     }, MANAGED)
     table.insert(Doors.ActiveManagedSounds, handle)
 
+    -- A loop whose file opens with an intro plays that intro from the original and hands over to a
+    -- trimmed copy that BASS can loop whole-file. Both are loaded before either is heard, so the body
+    -- is ready to start on the exact frame the handover begins.
+    local bodyPath = handle.loop and handle.loop_start > 0
+        and loopBodyFile(opts.path, handle.loop_start) or nil
+
+    ---@param chan IGModAudioChannel
+    ---@param canLoop boolean false while this channel is only playing an intro in
+    local function start(chan, canLoop)
+        handle.chan = chan
+        if handle.loop and canLoop then chan:EnableLooping(true) end
+        if handle.rate ~= 1 then chan:SetPlaybackRate(handle.rate) end
+        applyGain(handle)
+        chan:Play()
+        -- the async load can complete mid-pause; start parked so it doesn't play into the pause
+        if sp_paused then
+            chan:Pause()
+            handle.sp_paused = true
+        end
+    end
+
     -- Stereo, like Source: a positioned stereo sound keeps its channels, each scaled by that side's
     -- spatialisation weight (not summed to mono). noblock fully loads so there's no block-stream hitch.
+    -- noplay keeps a channel at its first sample until it is wanted - PlayFile starts it otherwise.
     sound.PlayFile("sound/" .. opts.path, "noblock", function(chan)
         if handle.stopped then
             -- stopped before the load finished (e.g. an interrupt raced the load)
             if IsValid(chan) then chan:Stop() end
         elseif IsValid(chan) then
-            handle.chan = chan
-            -- BASS does the looping itself, on its own thread; the Think loop only gets involved for a
-            -- file whose loop begins partway in, to send the wrap back to the marker
-            if handle.loop then chan:EnableLooping(true) end
-            applyGain(handle, chan)
-            if handle.rate ~= 1 then chan:SetPlaybackRate(handle.rate) end
-            chan:Play()
-            -- the async load can complete mid-pause; start parked so it doesn't play into the pause
-            if sp_paused then
-                chan:Pause()
-                handle.sp_paused = true
-            end
+            -- with a body to hand over to, this channel is only playing the intro, so it must not loop
+            start(chan, bodyPath == nil)
         else
             drop(handle)
         end
     end)
+
+    if bodyPath then
+        sound.PlayFile("data/" .. bodyPath, "noblock noplay", function(chan)
+            if handle.stopped or not IsValid(chan) then
+                if IsValid(chan) then chan:Stop() end
+                -- without a body there is nothing to hand over to, so let the original loop whole-file:
+                -- its intro comes back around each cycle, which is wrong but never silent
+                handle.loop_start = 0
+                if IsValid(handle.chan) then handle.chan:EnableLooping(true) end
+            else
+                handle.body = chan
+            end
+        end)
+    end
 
     return handle
 end
@@ -658,24 +758,33 @@ local function stepRate(handle, chan)
     chan:SetPlaybackRate(handle.rate)
 end
 
--- Keep a loop on the part of the file its author marked, when that isn't the whole file. The intro is
--- meant to be heard once, so the first pass is left alone; BASS then wraps to the start of the file
--- rather than to the marker, so catch the wrap - the play position jumping backwards - and send it to
--- the marker. Correcting after the wrap rather than seeking before the end matters: the sound is never
--- cut short, and only the very top of the intro can slip through, for at most the one frame between the
--- wrap and this running. Whole-file loops (the overwhelming majority) never reach here at all - BASS
--- loops those itself, on its own thread, with no help from Lua.
+-- Play the intro in, then hand over to the looping body. Both channels are already loaded, so the body
+-- starts on the frame the handover begins and the two are crossfaded across it (applyGain splits the
+-- volume between them). Crossfading rather than cutting is what makes this safe: there is no instant to
+-- miss, so a late frame shifts the blend slightly instead of leaving a gap. During the fade the intro
+-- is playing the samples before the marker and the body the samples after, so they are consecutive
+-- audio - overlapping the *same* audio would comb-filter.
 ---@param handle doors_managed_sound
----@param chan IGModAudioChannel
-local function keepLoopPoint(handle, chan)
-    local start = handle.loop_start
-    if start <= 0 then return end
-    local t = chan:GetTime()
-    local prev = handle.loop_prev
-    handle.loop_prev = t
-    if prev and t < prev and t < start then
-        chan:SetTime(start)
-        handle.loop_prev = start
+local function stepHandover(handle)
+    if handle.xfade == nil then
+        local body, intro = handle.body, handle.chan
+        if body == nil or not IsValid(body) or not IsValid(intro) then return end
+        if intro:GetState() ~= GMOD_CHANNEL_PLAYING then return end
+        if intro:GetTime() < handle.loop_start - HANDOVER then return end
+        -- the body takes over as the handle's channel; the original becomes the outgoing intro
+        handle.intro, handle.chan, handle.body = intro, body, nil
+        handle.xfade = 0
+        body:EnableLooping(true)
+        if handle.rate ~= 1 then body:SetPlaybackRate(handle.rate) end
+        body:Play()
+        return
+    end
+
+    handle.xfade = handle.xfade + FrameTime() / HANDOVER
+    if handle.xfade >= 1 then
+        handle.xfade = nil
+        if IsValid(handle.intro) then handle.intro:Stop() end
+        handle.intro = nil
     end
 end
 
@@ -684,19 +793,21 @@ hook.Add("Think", "doors_managed_sounds", function()
     local list = Doors.ActiveManagedSounds
     for i = #list, 1, -1 do
         local handle = list[i]
-        local chan = handle.chan
         if handle.owner ~= nil and not IsValid(handle.owner) then
             -- owner deleted: stop, like the entity's own EmitSounds would have
             handle:Stop()
-        elseif chan ~= nil then
-            if not IsValid(chan) or chan:GetState() == GMOD_CHANNEL_STOPPED then
-                drop(handle)
-            else
-                stepFade(handle)
-                if not handle.stopped then -- a fade can end in a stop, which drops the handle
-                    stepRate(handle, chan)
-                    if handle.loop then keepLoopPoint(handle, chan) end
-                    applyGain(handle, chan)
+        else
+            stepHandover(handle)
+            local chan = handle.chan
+            if chan ~= nil then
+                if not IsValid(chan) or chan:GetState() == GMOD_CHANNEL_STOPPED then
+                    drop(handle)
+                else
+                    stepFade(handle)
+                    if not handle.stopped then -- a fade can end in a stop, which drops the handle
+                        stepRate(handle, chan)
+                        applyGain(handle)
+                    end
                 end
             end
         end
@@ -714,19 +825,21 @@ hook.Add("PreRender", "doors_managed_sounds_pause", function()
     if now_paused == sp_paused then return end
     sp_paused = now_paused
     for _, handle in ipairs(Doors.ActiveManagedSounds) do
-        local chan = handle.chan
-        if chan ~= nil and IsValid(chan) then
-            if sp_paused and chan:GetState() == GMOD_CHANNEL_PLAYING then
-                chan:Pause()
-                handle.sp_paused = true
-            elseif not sp_paused and handle.sp_paused then
-                handle.sp_paused = nil
-                -- resume only what we parked and is still parked: Play() on a channel that finished
-                -- in the detection window would restart it from the beginning
-                if chan:GetState() == GMOD_CHANNEL_PAUSED then
-                    chan:Play()
+        -- both, when an intro is mid-handover to its loop
+        for _, chan in ipairs({ handle.chan, handle.intro }) do
+            if IsValid(chan) then
+                if sp_paused and chan:GetState() == GMOD_CHANNEL_PLAYING then
+                    chan:Pause()
+                    handle.sp_paused = true
+                elseif not sp_paused and handle.sp_paused then
+                    -- resume only what we parked and is still parked: Play() on a channel that finished
+                    -- in the detection window would restart it from the beginning
+                    if chan:GetState() == GMOD_CHANNEL_PAUSED then
+                        chan:Play()
+                    end
                 end
             end
         end
+        if not sp_paused then handle.sp_paused = nil end
     end
 end)
