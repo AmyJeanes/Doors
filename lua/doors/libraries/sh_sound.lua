@@ -15,6 +15,12 @@
 -- left/right per-side gain - the azimuth pan and the centre/rear volume envelope - via SetVolume + SetPan,
 -- so it tracks the view like the original. Doppler isn't emulated (Source only applies it to CHAR_DOPPLER
 -- soundscripts).
+--
+-- Cross-boundary audio. An interior sits thousands of units from its exterior, so a sound in one and a
+-- listener in the other are nowhere near each other in world space and the sound computes as inaudible.
+-- resolve() below puts that right: when the two are in different spaces the sound is heard from the
+-- doorway between them, attenuated by what that doorway costs. Only managed channels get this - the
+-- engine won't reposition a sound already in flight, so a plain EmitSound still stops at the boundary.
 
 ---@class doors_sound_opts
 ---@field path string sound path relative to sound/
@@ -201,6 +207,7 @@ local function loopBodyFile(path, from)
 end
 
 ---@class doors_managed_sound
+---@field path string sound path relative to sound/
 ---@field intro IGModAudioChannel? the original file, playing the part before the loop marker; handed over to chan and dropped
 ---@field xfade number? progress 0-1 of the intro handing over to the loop
 ---@field chan IGModAudioChannel? nil while the async load is still in flight
@@ -229,6 +236,13 @@ end
 ---@field rate number current playback rate, 1 = the file's own pitch
 ---@field rate_to number? playback rate being eased toward
 ---@field rate_ease number? seconds the rate ease takes to close most of the gap
+---@field res doors_sound_resolution where the sound is heard from this frame, and what a doorway did to it
+---@field res_frame number frame the resolution was last computed on, so it is computed once per frame
+---@field heal_db number size of a captured space change still being faded out
+---@field heal_left number seconds of that fade remaining
+---@field last_space gmod_door_interior? space the sound was in last frame, nil for the open world
+---@field last_listener_space gmod_door_interior? space the listener was in last frame
+---@field last_gain number? last frame's gain, so a space change can be captured as a step
 local MANAGED = {}
 MANAGED.__index = MANAGED
 
@@ -267,6 +281,298 @@ local function sourcePos(handle)
         handle.attach = nil
     end
     return handle.pos or handle.last_pos
+end
+
+--------------------------------------------------------------------------------------------------
+-- Cross-boundary audio
+--------------------------------------------------------------------------------------------------
+
+-- What a doorway costs a sound coming through it. A doorway is two effects on top of an ordinary sound,
+-- never a replacement for one: the baseline is the plain engine falloff over the WHOLE path the sound
+-- travels - out to the doorway and on to the listener - and the doorway then takes away.
+--
+-- Every term vanishes at the mouth with the door open, which is the invariant the model rests on:
+-- standing in an open doorway is identical to standing in the room, not merely close to it. So there is
+-- no coefficient for the open case to get wrong - it is 1 by construction rather than by tuning.
+--
+-- Attenuating each leg of the path separately instead is the intuitive reading and is wrong: Source's
+-- gain curve compresses everything above 0.5, so two short legs both sit in the flat part and together
+-- lose LESS than one long leg. Measured, a doorway made sounds louder by up to 3.7 dB, and the sign of
+-- the error flipped with distance. Free field over the true path, then subtract, is monotonic.
+---@class doors_sound_tuning
+---@field closed number aperture with the door fully shut; fully open is 1 and is not a setting
+---@field curve number exponent on openness, so a door barely cracked does not jump to nearly open
+---@field falloff number dB per 1000u, for each halving of the doorway below SIZE_NEUTRAL
+---@field aim number how much the opening throws its sound outward: 0 every way, 1 silent behind it
+local SOUND_TUNING_DEFAULTS = {
+    closed  = 0.250,
+    curve   = 1.00,
+    falloff = 25.00,
+    aim     = 0.50,
+}
+
+-- Tuned by ear in `doors_debug_sound`, which writes this table live so the numbers are judged against
+-- real sounds. Not public API: a consumer scales its own sounds, it does not redefine what a door is.
+Doors.SoundTuning = table.Copy(SOUND_TUNING_DEFAULTS) ---@type doors_sound_tuning
+Doors.SoundTuningDefaults = SOUND_TUNING_DEFAULTS ---@type doors_sound_tuning
+
+-- The doorway area at and above which size stops mattering - an opening this big is acoustically just a
+-- gap in the wall. Roughly 128x128: a plain physical size rather than anything drawn from one consumer's
+-- content, since doorways range from a cupboard to thousands of units a side.
+--
+-- This is the other half of `falloff` and deliberately not a second setting: falloff * halvings expands
+-- to falloff * (log2 NEUTRAL - log2 area), so moving this shifts every doorway together while the
+-- setting changes how much size separates them. Having both adjustable made neither readable.
+local SIZE_NEUTRAL = 16384
+
+-- The floor on any transition: long enough that a listener changing space does not click, short enough
+-- to be over before a teleport has finished resolving on screen.
+local TRANSITION_FLOOR = 0.5
+
+---@param gain number
+---@return number
+local function toDb(gain)
+    return 20 * math.log10(math.max(gain, 1e-6))
+end
+
+-- Which way a doorway faces: its authored forward, which already points into the space you stand in to
+-- use it - out into the world for an exterior, into the room for an interior.
+--
+-- Deriving the sign instead, by pointing the normal away from the middle of the entity the doorway sits
+-- in, looks more robust and is worse in both directions. A free-standing doorframe has its opening
+-- essentially at its own centre, so there is no "away" to find and the test lands on a rounding error;
+-- on an interior it comes out backwards and points through the wall. The author already said which way.
+---@param ent Entity
+---@param portal doors_portal_side
+---@return Vector
+local function mouthNormal(ent, portal)
+    return ent:LocalToWorldAngles(portal.ang):Forward()
+end
+
+-- The nearest point on a doorway to `p`, rather than its centre. Treating a doorway as a point is only
+-- harmless while it is small, and doorways reach thousands of units a side - where standing in the
+-- corner of the opening is thousands of units from its centre, so a centre-based distance would call you
+-- far away while you are stood in it. Clamping into the rectangle costs nothing and holds at any size.
+---@param ent Entity
+---@param portal doors_portal_side
+---@param p Vector
+---@return Vector
+local function mouthPoint(ent, portal, p)
+    local centre = ent:LocalToWorld(portal.pos)
+    local ang = ent:LocalToWorldAngles(portal.ang)
+    local right, up = ang:Right(), ang:Up()
+    local d = p - centre
+    return centre
+        + right * math.Clamp(d:Dot(right), -portal.width / 2, portal.width / 2)
+        + up * math.Clamp(d:Dot(up), -portal.height / 2, portal.height / 2)
+end
+
+-- Which interior a sound is emitted inside, or nil for the open world.
+--
+-- The parent chain answers it for almost everything: an interior emits from itself, and whatever a
+-- consumer builds onto either side is parented to it. An exterior stands in the world unless it is
+-- parked inside another interior, which Doors already tracks as `insideof`. Only an unparented emitter
+-- or a fixed position falls through to the containment scan, which is why that comes last.
+---@param ent Entity?
+---@param pos Vector
+---@return gmod_door_interior?
+local function spaceOf(ent, pos)
+    for _ = 1, 16 do -- cap against a parent cycle
+        if not IsValid(ent) then break end
+        ---@cast ent Entity
+        if ent.DoorInterior then return ent --[[@as gmod_door_interior]] end
+        if ent.DoorExterior then
+            local inside = ent.insideof
+            return IsValid(inside) and inside or nil
+        end
+        ent = ent:GetParent()
+    end
+    for int in pairs(Doors:GetInteriors()) do
+        if IsValid(int) and int:PositionInside(pos) then return int end
+    end
+    return nil
+end
+
+---@class doors_openness_state
+---@field frame number
+---@field value number
+
+-- Weak-keyed so a removed interior takes its entry with it, rather than parking library state on the
+-- entity class where a consumer would see it.
+local opennessState = setmetatable({}, { __mode = "k" }) ---@type table<gmod_door_interior, doors_openness_state>
+
+-- How open a boundary is, rate-limited so it cannot cross 0..1 faster than the transition floor. Stepped
+-- once per frame and shared by every sound crossing it.
+--
+-- Rate-limiting openness rather than the gain it feeds covers a door that animates, a door with no
+-- animation at all, and a value yanked from one extreme to the other, all with one floor. Rate-limiting
+-- the total gain instead would smear ordinary distance changes and make walking past a doorway lag
+-- behind you: the discontinuity risk is the topology changing, not the distance.
+---@param int gmod_door_interior
+---@return number
+local function openness(int)
+    local state = opennessState[int]
+    local ext = int.exterior
+    local raw = IsValid(ext) and math.Clamp(ext:GetDoorOpenness(), 0, 1) or 1
+    if not state then
+        state = { frame = FrameNumber(), value = raw }
+        opennessState[int] = state
+    elseif state.frame ~= FrameNumber() then
+        state.frame = FrameNumber()
+        state.value = math.Approach(state.value, raw, FrameTime() / TRANSITION_FLOOR)
+    end
+    return state.value
+end
+
+---@class doors_sound_face
+---@field ent Entity the interior or exterior the doorway belongs to
+---@field portal doors_portal_side
+
+-- Both sides of a boundary, and the area of the tighter of the two - a sound can only get through the
+-- narrower opening, whichever side of it the listener is on.
+---@param int gmod_door_interior
+---@return doors_sound_face? interior
+---@return doors_sound_face? exterior
+---@return number area
+local function faces(int)
+    local ext = int.exterior
+    if not IsValid(ext) then return nil, nil, 0 end
+    local ip, ep = int:GetDoorway(), ext:GetDoorway()
+    if not ip or not ep then return nil, nil, 0 end
+    return { ent = int, portal = ip }, { ent = ext, portal = ep },
+        math.min(ip.width * ip.height, ep.width * ep.height)
+end
+
+---@class doors_sound_resolution
+---@field pos Vector? where the sound is heard from - the doorway itself when it comes through one
+---@field dist number distance from the listener along the path the sound travels
+---@field gain number everything the doorway does to it, 1 when there is no doorway in the path
+---@field heal number the remainder of a captured space change, 1 once it has faded
+---@field int gmod_door_interior? the boundary in the path, nil when listener and sound share a space
+---@field inside boolean the listener is in `int` rather than outside it
+---@field emitter Vector? where the sound actually is, as opposed to where it is heard from
+---@field source doors_sound_face? the doorway the sound radiates into
+---@field listener doors_sound_face? the doorway it reaches the listener from
+---@field normal Vector? which way that doorway faces
+---@field d1 number the sound to its own doorway
+---@field d2 number the listener's doorway to the listener
+---@field area number the tighter doorway's area in square units
+---@field openness number
+---@field volume number the consumer's own scalar for sound crossing this boundary
+---@field aperture number flat gain from how open the door is
+---@field db_per_1000 number how fast this doorway's size makes the sound fall off past the mouth
+---@field extra number the extra falloff past the mouth, at this distance
+---@field facing number -1 directly behind the doorway, 1 head on
+---@field directivity number
+---@field healing number 0-1 of a captured space change still to fade
+
+-- built through a typed return rather than annotated as a literal, which would be checked against every
+-- field of the class before a single resolve has filled them in
+---@return doors_sound_resolution
+local function newResolution()
+    return { dist = 0, gain = 1, heal = 1, inside = false, d1 = 0, d2 = 0, area = 0, openness = 1,
+        volume = 1, aperture = 1, db_per_1000 = 0, extra = 1, facing = 1, directivity = 1, healing = 0 }
+end
+
+-- Where this sound is heard from this frame and what the boundary between does to it. Computed once per
+-- frame and reused, because sourcePos has side effects (the pin and attach handovers) that must happen
+-- exactly once, and because the debug panel reads the result rather than recomputing its own.
+---@param handle doors_managed_sound
+---@return doors_sound_resolution
+local function resolve(handle)
+    local res = handle.res
+    if handle.res_frame == FrameNumber() then return res end
+    handle.res_frame = FrameNumber()
+
+    local pos = sourcePos(handle)
+    res.emitter, res.pos = pos, pos
+    res.int, res.source, res.listener, res.normal = nil, nil, nil, nil
+    res.inside = false
+    res.gain, res.d1, res.d2, res.area = 1, 0, 0, 0
+    res.openness, res.volume, res.aperture, res.facing, res.directivity = 1, 1, 1, 1, 1
+    res.db_per_1000, res.extra = 0, 1
+    res.dist = pos and EyePos():Distance(pos) or 0
+    if not pos then
+        res.heal, res.healing = 1, 0
+        return res
+    end
+
+    local ply = LocalPlayer()
+    local listenerSpace = IsValid(ply) and ply.doori or nil
+    if listenerSpace ~= nil and not IsValid(listenerSpace) then listenerSpace = nil end
+    local space = spaceOf(handle.ent, pos)
+
+    -- The boundary is the sound's own interior whenever it has one, because a sound always radiates out
+    -- through the doorway of the space it is in; only a sound already in the open world is resolved
+    -- through the listener's doorway instead. That also handles a shell parked inside another interior,
+    -- where the far doorway genuinely opens into the room the listener is standing in.
+    local int = space ~= listenerSpace and (space or listenerSpace) or nil
+    local intFace, extFace, area = nil, nil, 0
+    if int then intFace, extFace, area = faces(int) end
+
+    if int and intFace and extFace then
+        local inside = int ~= space
+        local source = inside and extFace or intFace
+        local listener = inside and intFace or extFace
+        local mouth = mouthPoint(listener.ent, listener.portal, EyePos())
+        local d1 = pos:Distance(mouthPoint(source.ent, source.portal, pos))
+        local d2 = EyePos():Distance(mouth)
+
+        local tuning = Doors.SoundTuning
+        local open = openness(int)
+        local aperture = tuning.closed + (1 - tuning.closed) * open ^ tuning.curve
+
+        -- How many times the doorway would have to double to stop being small. Log-scaled because areas
+        -- span orders of magnitude across consumers, and clamped at zero so a large opening is merely
+        -- unpenalised rather than credited - this term must never be able to make anything louder.
+        local halvings = math.max(0, math.log(SIZE_NEUTRAL / math.max(area, 1), 2))
+        local dbPer1000 = tuning.falloff * halvings
+        local extra = 10 ^ (-(dbPer1000 * d2 / 1000) / 20)
+
+        -- Linear in the cosine, which is gentle - a hum is low-frequency, and low frequencies are the
+        -- least directional thing there is. At the mouth itself the direction is meaningless, so it is
+        -- pinned to 1 there rather than left to normalise a nearly-zero vector.
+        local normal = mouthNormal(listener.ent, listener.portal)
+        local facing = d2 > 1 and normal:Dot((EyePos() - mouth):GetNormalized()) or 1
+        local directivity = 1 - tuning.aim * 0.5 * (1 - facing)
+
+        res.int, res.inside = int, inside
+        res.source, res.listener, res.normal = source, listener, normal
+        local volume = math.Clamp(int.exterior:GetCrossBoundaryVolume(), 0, 1)
+
+        res.d1, res.d2, res.area = d1, d2, area
+        res.openness, res.volume, res.aperture = open, volume, aperture
+        res.db_per_1000, res.extra = dbPer1000, extra
+        res.facing, res.directivity = facing, directivity
+        res.gain = aperture * extra * directivity * volume
+        res.pos, res.dist = mouth, d1 + d2
+    end
+
+    -- Changing space is the only real discontinuity, and it cannot be smoothed by blending the in-space
+    -- gain against the cross-boundary one: each is valid only in its own space, so the moment the
+    -- listener steps out, the in-space one is measuring the emitter across the void and the blend fades
+    -- in from silence. Capture the step in dB at the instant it happens and heal that to nothing
+    -- instead, which leaves ordinary distance changes completely alone.
+    local gain = res.gain
+    if handle.level then gain = gain * sndLevelGain(res.dist, handle.level) end
+    if handle.last_space ~= space or handle.last_listener_space ~= listenerSpace then
+        local was = handle.last_gain
+        if was then -- nil on the first resolve, where there is no step to capture
+            handle.heal_db = math.Clamp(toDb(was) - toDb(gain), -60, 60)
+            handle.heal_left = TRANSITION_FLOOR
+        end
+        handle.last_space, handle.last_listener_space = space, listenerSpace
+    end
+    handle.last_gain = gain
+
+    local healing = 0
+    if handle.heal_left > 0 then
+        handle.heal_left = handle.heal_left - FrameTime()
+        healing = math.max(handle.heal_left, 0) / TRANSITION_FLOOR
+    end
+    res.healing = healing
+    res.heal = healing > 0 and 10 ^ (handle.heal_db * healing / 20) or 1
+    return res
 end
 
 -- What we need from a .wav's header, read once per path:
@@ -465,19 +771,21 @@ end
 -- EmitSound of these sounds would have played at anyway.
 local SOURCE_MIXER_GAIN = 0.72
 
--- volume for this frame: base * SNDLVL distance gain * occlusion * mixer * master.
--- Omni (stereo-wav) sounds are unattenuated by direction and never obscured, so they skip occlusion.
+-- volume for this frame: base * SNDLVL distance gain * doorway * occlusion * mixer * master. The
+-- distance is measured along the path the sound travels, so it already includes the leg out to a
+-- doorway. Omni (stereo-wav) sounds are unattenuated by direction and never obscured, so they skip
+-- occlusion.
 ---@param handle doors_managed_sound
+---@param res doors_sound_resolution
 ---@return number
-local function targetVolume(handle)
-    local gain = 1
-    local pos = sourcePos(handle)
-    if pos then
+local function targetVolume(handle, res)
+    local gain = res.gain * res.heal
+    if res.pos then
         if handle.level then
-            gain = sndLevelGain(EyePos():Distance(pos), handle.level)
+            gain = gain * sndLevelGain(res.dist, handle.level)
         end
         if not handle.omni then
-            gain = gain * occlusion(handle, pos)
+            gain = gain * occlusion(handle, res.pos)
         end
     end
     return handle.base * gain * SOURCE_MIXER_GAIN * (volumeConVar and volumeConVar:GetFloat() or 1)
@@ -491,14 +799,18 @@ local OMNI_ENVELOPE = 0.9   -- GetSpeakerVol's fully-mono target per front speak
 -- an equal-power split, which holds the loudness steady across the handover.
 ---@param handle doors_managed_sound
 local function applyGain(handle)
-    local scalar = targetVolume(handle)
-    local pos = sourcePos(handle)
+    local res = resolve(handle)
+    local scalar = targetVolume(handle, res)
+    local pos = res.pos
     local pan = 0
     if pos and handle.omni then
         -- CHAR_OMNI: mono, both channels equal, no pan - only the distance gain varies
         handle.volume = scalar * OMNI_ENVELOPE
     elseif pos then
-        local radius = IsValid(handle.ent) and handle.ent:GetModelRadius() or 0
+        -- Across a boundary the sound is heard from the doorway, which is a hole rather than an object,
+        -- so there is no emitter radius to collapse toward mono inside.
+        local radius = 0
+        if res.int == nil and IsValid(handle.ent) then radius = handle.ent:GetModelRadius() end
         local lf, rf = spatialize(pos, radius)
         local m = math.max(lf, rf, 0.0001)
         handle.volume = scalar * m
@@ -603,6 +915,7 @@ local function playManaged(opts)
     local header = wavHeader(opts.path)
     ---@type doors_managed_sound
     local handle = setmetatable({
+        path = opts.path,
         owner = opts.owner,
         tag = opts.tag,
         base = opts.volume or 1,
@@ -619,6 +932,10 @@ local function playManaged(opts)
         loop_start = header.loop_start,
         rate = 1,
         stopped = false,
+        res = newResolution(),
+        res_frame = -1,
+        heal_db = 0,
+        heal_left = 0,
     }, MANAGED)
     table.insert(Doors.ActiveManagedSounds, handle)
 

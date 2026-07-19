@@ -2,6 +2,7 @@
 ---@field Model string
 ---@field Fallback table?
 ---@field interior gmod_door_interior?
+---@field insideof gmod_door_interior? interior this shell is parked inside, when it is nested in one
 ---@field Portal doors_portal_side?
 ---@field doorway doors_portal_side? geometry-only copy, networked to the client at player init
 ---@field initqueue table

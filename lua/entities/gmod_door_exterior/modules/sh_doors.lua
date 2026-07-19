@@ -27,3 +27,13 @@ end
 function ENT:GetDoorOpenness()
     return 1
 end
+
+-- How loud sound crossing this boundary is, 0 to 1. A plain doorway passes it through at whatever the
+-- geometry says; a consumer that offers this as a user setting scales it here, and 0 switches
+-- cross-boundary audio off entirely. Separate from openness because it is a preference, not a fact
+-- about the world - two players may hear the same shut door differently through this and only this.
+---@api
+---@return number
+function ENT:GetCrossBoundaryVolume()
+    return 1
+end
