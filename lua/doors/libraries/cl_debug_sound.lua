@@ -531,10 +531,14 @@ function RIG:Open(reveal)
     end
     ---@param text string
     ---@param fn function
-    local function button(text, fn)
+    ---@param enabled? fun(): boolean when given, greys the button out while it returns false
+    local function button(text, fn, enabled)
         local b = scroll:Add("DButton")
         b:Dock(TOP) b:DockMargin(6, 4, 6, 0) b:SetTall(26) b:SetText(text)
         function b:DoClick() fn() end
+        if enabled then
+            function b:Think() self:SetEnabled(enabled() and true or false) end
+        end
     end
 
     label("Sound")
@@ -560,8 +564,10 @@ function RIG:Open(reveal)
         RIG:Play()
     end
 
-    button("PLAY", function() RIG:Play() end)
-    button("Stop", function() RIG:Stop() end)
+    -- nothing to play against until a boundary resolves, and `snd ~= nil` rather than IsValid because
+    -- a handle is not valid while its channel is still loading
+    button("PLAY", function() RIG:Play() end, function() return RIG.info.ok end)
+    button("Stop", function() RIG:Stop() end, function() return RIG.snd ~= nil end)
 
     label("Aperture - a flat gain, 1 when fully open")
     slider("closed coefficient", 0, 1, 3, "closed")
