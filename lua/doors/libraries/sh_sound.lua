@@ -365,6 +365,10 @@ local SIZE_NEUTRAL = 16384
 -- to be over before a teleport has finished resolving on screen.
 local TRANSITION_FLOOR = 0.5
 
+-- -100 dB: two and a half times below the engine's own gain floor, so nothing above it is reachable by
+-- ear, and it exists only to keep a meaninglessly small number out of the dB glide.
+local GAIN_FLOOR = 1e-5
+
 -- Which way a doorway faces: its authored forward, which already points into the space you stand in to
 -- use it - out into the world for an exterior, into the room for an interior.
 --
@@ -585,6 +589,12 @@ local function resolve(handle)
     -- now belongs, which leaves ordinary distance changes completely alone.
     local gain = res.gain
     if handle.level then gain = gain * sndLevelGain(res.dist, handle.level) end
+    -- Floored a long way below anything audible, because the glide below interpolates in dB and a
+    -- silent target is not silent enough to be harmless there. A doorway's falloff measured over a
+    -- void-crossing distance is a real answer - teleport far enough and the sound genuinely is that far
+    -- through that opening - but it comes out around 1e-70, and gliding toward -1400 dB drops two orders
+    -- of magnitude in the first few frames. Everything past this floor sounds identical anyway.
+    gain = math.max(gain, GAIN_FLOOR)
     if handle.last_space ~= space or handle.last_listener_space ~= listenerSpace then
         -- nil on the first resolve, where there is nothing to glide from
         handle.heal_from = handle.last_gain
