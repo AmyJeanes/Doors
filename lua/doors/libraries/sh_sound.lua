@@ -262,6 +262,7 @@ end
 ---@field res_frame number frame the resolution was last computed on, so it is computed once per frame
 ---@field heal_from number? gain the sound was at when it last changed space, glided away from
 ---@field heal_left number seconds of that glide remaining
+---@field heal_span number seconds that glide runs for in total, so its progress can be read back
 ---@field last_space gmod_door_interior? space the sound was in last frame, nil for the open world
 ---@field last_listener_space gmod_door_interior? space the listener was in last frame
 ---@field last_gain number? last frame's gain, so a space change can be captured as a step
@@ -365,6 +366,11 @@ local SIZE_NEUTRAL = 16384
 -- to be over before a teleport has finished resolving on screen.
 local TRANSITION_FLOOR = 0.5
 
+-- Used instead when the listener changed space by changing view rather than by moving. A cut has no
+-- travel for a glide to cover, so gliding only makes the sound lag a picture that already changed. Short
+-- rather than instant, because a gain step inside a single frame clicks.
+local VIEW_TRANSITION = 0.04
+
 -- -100 dB: two and a half times below the engine's own gain floor, so nothing above it is reachable by
 -- ear, and it exists only to keep a meaninglessly small number out of the dB glide.
 local GAIN_FLOOR = 1e-5
@@ -429,9 +435,11 @@ end
 
 ---@class doors_listener_state
 ---@field frame number
----@field space gmod_door_interior?
+---@field space gmod_door_interior? the space the camera is in
+---@field detached boolean the camera is resolving somewhere its owner's body is not
+---@field view_change boolean detachment changed this frame, so a space change is a view cut, not a move
 
-local listenerState = { frame = -1 } ---@type doors_listener_state
+local listenerState = { frame = -1, detached = false, view_change = false } ---@type doors_listener_state
 
 -- Which space the listener is in - the camera, not the body. Every other term is measured from EyePos(),
 -- and a view mode can put the two in different spaces: a consumer's outside view can anchor the camera to
@@ -451,12 +459,22 @@ local function getListenerSpace()
     -- The body's own space answers without a scan whenever the camera has not left it, which is every
     -- frame of ordinary play; the containment scan only runs once a view mode moves them apart.
     local eye = EyePos()
+    local space
     if body and body:PositionInside(eye) then
-        listenerState.space = body
+        space = body
     else
-        listenerState.space = spaceOf(nil, eye)
+        space = spaceOf(nil, eye)
     end
-    return listenerState.space
+
+    -- Whether a space change was a move or a view change, tracked as a change in whether the camera and
+    -- its body agree. Comparing the two directly does not work: they agree again the moment the view is
+    -- switched back, which would read that cut as a move. Nor does looking for a jump in position -
+    -- walking through a portal teleports the camera just as far as any cut does.
+    local detached = space ~= body
+    listenerState.view_change = detached ~= listenerState.detached
+    listenerState.detached = detached
+    listenerState.space = space
+    return space
 end
 
 ---@class doors_openness_state
@@ -626,16 +644,20 @@ local function resolve(handle)
     -- of magnitude in the first few frames. Everything past this floor sounds identical anyway.
     gain = math.max(gain, GAIN_FLOOR)
     if handle.last_space ~= space or handle.last_listener_space ~= listenerSpace then
+        -- Only the listener changing space can be a view cut; a sound that changed space travelled,
+        -- whatever the camera was doing.
+        local viewCut = handle.last_space == space and listenerState.view_change
+        handle.heal_span = viewCut and VIEW_TRANSITION or TRANSITION_FLOOR
         -- nil on the first resolve, where there is nothing to glide from
         handle.heal_from = handle.last_gain
-        handle.heal_left = handle.heal_from and TRANSITION_FLOOR or 0
+        handle.heal_left = handle.heal_from and handle.heal_span or 0
         handle.last_space, handle.last_listener_space = space, listenerSpace
     end
 
     local healing = 0
     if handle.heal_left > 0 then
         handle.heal_left = handle.heal_left - FrameTime()
-        healing = math.max(handle.heal_left, 0) / TRANSITION_FLOOR
+        healing = math.max(handle.heal_left, 0) / handle.heal_span
     end
     res.healing = healing
     -- Re-measured against the CURRENT gain every frame rather than held as the dB step it started out
@@ -1035,6 +1057,7 @@ local function playManaged(opts)
         res = newResolution(),
         res_frame = -1,
         heal_left = 0,
+        heal_span = TRANSITION_FLOOR,
     }, MANAGED)
     table.insert(Doors.ActiveManagedSounds, handle)
 
