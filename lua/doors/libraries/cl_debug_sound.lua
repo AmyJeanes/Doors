@@ -550,7 +550,7 @@ function RIG:Open(reveal)
         surface.SetDrawColor(255, 255, 255, 200)
         surface.DrawRect(mx - 1, 10, 2, ph)
         surface.SetDrawColor(255, 255, 255)
-        surface.DrawRect(mx - 3, ypos(res.gain * res.heal * Doors:DistanceGain(res.dist, lvl)) - 3, 6, 6)
+        surface.DrawRect(mx - 3, ypos(res.applied) - 3, 6, 6)
 
         draw.SimpleText("in the room", "DermaDefault", pad + 2, h - 18, Color(110, 150, 220))
         draw.SimpleText("through the doorway", "DermaDefault", pad + 84, h - 18, Color(110, 210, 130))

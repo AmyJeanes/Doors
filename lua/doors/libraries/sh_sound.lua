@@ -477,7 +477,7 @@ end
 ---@field pos Vector? where the sound is heard from - the doorway itself when it comes through one
 ---@field dist number distance from the listener along the path the sound travels
 ---@field gain number everything the doorway does to it, 1 when there is no doorway in the path
----@field heal number the remainder of a captured space change, 1 once it has faded
+---@field applied number the finished attenuation: the doorway, the distance and any glide, together
 ---@field int gmod_door_interior? the boundary in the path, nil when listener and sound share a space
 ---@field inside boolean the listener is in `int` rather than outside it
 ---@field emitter Vector? where the sound actually is, as opposed to where it is heard from
@@ -500,7 +500,7 @@ end
 -- field of the class before a single resolve has filled them in
 ---@return doors_sound_resolution
 local function newResolution()
-    return { dist = 0, gain = 1, heal = 1, inside = false, d1 = 0, d2 = 0, area = 0, openness = 1,
+    return { dist = 0, gain = 1, applied = 1, inside = false, d1 = 0, d2 = 0, area = 0, openness = 1,
         volume = 1, aperture = 1, db_per_1000 = 0, extra = 1, facing = 1, directivity = 1, healing = 0 }
 end
 
@@ -523,7 +523,7 @@ local function resolve(handle)
     res.db_per_1000, res.extra = 0, 1
     res.dist = pos and EyePos():Distance(pos) or 0
     if not pos then
-        res.heal, res.healing = 1, 0
+        res.applied, res.healing = 1, 0
         return res
     end
 
@@ -591,7 +591,6 @@ local function resolve(handle)
         handle.heal_left = handle.heal_from and TRANSITION_FLOOR or 0
         handle.last_space, handle.last_listener_space = space, listenerSpace
     end
-    handle.last_gain = gain
 
     local healing = 0
     if handle.heal_left > 0 then
@@ -604,8 +603,14 @@ local function resolve(handle)
     -- the listener, so the target moves hugely in the very frames that follow - which turned a 60 dB
     -- capture into a thousandfold overdrive and a burst of clipping. Interpolating instead keeps the
     -- result between the level it came from and the one it is going to, so it cannot overshoot either.
+    --
+    -- Finished here rather than handed on as a ratio for the caller to apply. As a ratio it is only
+    -- meaningful against the whole attenuation it was measured from, so anything that multiplied it by
+    -- part of that - the doorway alone, say, with distance still to come - would be holding a number
+    -- that legitimately runs into the hundreds, and capping it there would eat the glide.
     local from = handle.heal_from
-    res.heal = (healing > 0 and from) and (from / math.max(gain, 1e-6)) ^ healing or 1
+    res.applied = (healing > 0 and from) and gain ^ (1 - healing) * from ^ healing or gain
+    handle.last_gain = res.applied
     return res
 end
 
@@ -813,19 +818,12 @@ local SOURCE_MIXER_GAIN = 0.72
 ---@param res doors_sound_resolution
 ---@return number
 local function targetVolume(handle, res)
-    -- Held to an attenuation: the doorway and the glide can only ever take away, so together they must
-    -- not come out above 1. The ceiling that means anything is the sound's own level, which is what this
-    -- gives - capping the finished channel volume at full scale instead would still let a sound
-    -- configured at 0.2 land five times over its own loudest. The engine's distance gain is deliberately
-    -- outside the cap: snd_gain_max is allowed to exceed 1, and matching the engine means following it.
-    local gain = math.min(res.gain * res.heal, 1)
-    if res.pos then
-        if handle.level then
-            gain = gain * sndLevelGain(res.dist, handle.level)
-        end
-        if not handle.omni then
-            gain = gain * occlusion(handle, res.pos)
-        end
+    -- Already the whole attenuation - doorway, distance and any glide across a space change. It needs no
+    -- cap: every part of it only ever takes away, and the glide interpolates between two such values, so
+    -- it lands between them. Occlusion is left out of it because it carries its own smoothing.
+    local gain = res.applied
+    if res.pos and not handle.omni then
+        gain = gain * occlusion(handle, res.pos)
     end
     return handle.base * gain * SOURCE_MIXER_GAIN * (volumeConVar and volumeConVar:GetFloat() or 1)
 end
