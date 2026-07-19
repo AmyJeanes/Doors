@@ -105,6 +105,27 @@ if SERVER then
     return
 end
 
+-- A/B against the engine's own sound system. With `doors_sound_engine 1`, a sound that would take a
+-- managed channel is played as a plain CSoundPatch instead: engine spatialisation, engine falloff, no
+-- cross-boundary resolution - how these sounds behaved before any of this existed. It is for comparing
+-- the port against the original when one of them sounds wrong, and gives up everything managed channels
+-- are for (the listener crossing a door culls a sound, and nothing leaks through one).
+--
+-- Only the caller's own volume and pitch stay ours to drive here, because those are the pre-distance
+-- values a CSoundPatch takes too. Everything else - distance, pan, occlusion, looping - is the engine's,
+-- which is the whole point of the comparison.
+local engineMode = CreateClientConVar("doors_sound_engine", "0", false, false,
+    "Play sounds through the engine's own CSoundPatch instead of a managed channel, to compare the two")
+
+-- Restart everything so flipping it takes effect at once: a loop's owner polls for its handle and
+-- recreates it on the next Think, which is the ownership pattern the library already relies on.
+cvars.AddChangeCallback("doors_sound_engine", function()
+    local list = Doors.ActiveManagedSounds
+    for i = #list, 1, -1 do
+        list[i]:Stop()
+    end
+end, "doors_sound_engine_restart")
+
 -- Source's exact distance gain, ported from the engine (sound_shared.cpp SND_GetGainFromMult), so the
 -- falloff matches EmitSound precisely: inverse-distance from the SNDLVL, plus air/foliage loss and the
 -- >0.5 soft-knee compression and the min-gain floor. Reads the same convars the engine does. Validated
@@ -211,6 +232,7 @@ end
 ---@field intro IGModAudioChannel? the original file, playing the part before the loop marker; handed over to chan and dropped
 ---@field xfade number? progress 0-1 of the intro handing over to the loop
 ---@field chan IGModAudioChannel? nil while the async load is still in flight
+---@field patch CSoundPatch? set instead of chan under doors_sound_engine, where the engine plays it
 ---@field owner Entity?
 ---@field tag string?
 ---@field base number caller's max volume (the EmitSound volume equivalent)
@@ -835,10 +857,13 @@ end
 -- per-frame updates to a handle on this: they would all be skipped until the channel already exists,
 -- leaving it to start at whatever the volume was when it was created and jump on the next frame.
 function MANAGED:IsValid()
+    if self.patch then return true end
     return IsValid(self.chan)
 end
 
 function MANAGED:IsPlaying()
+    local patch = self.patch
+    if patch then return patch:IsPlaying() end
     return IsValid(self.chan) and self.chan:GetState() == GMOD_CHANNEL_PLAYING
 end
 
@@ -854,6 +879,12 @@ function MANAGED:SetVolume(volume, time)
     end
     self.fade_to, self.fade_left, self.stop_when_faded = nil, nil, nil
     self.base = volume
+    local patch = self.patch
+    if patch then
+        -- a CSoundPatch takes the pre-distance volume itself, so this one goes straight through
+        patch:ChangeVolume(volume, 0)
+        return
+    end
     -- go through the gain path rather than writing the channel: the caller's volume is the pre-distance
     -- one, so writing it straight to the channel would play a far-off sound at full volume
     applyGain(self)
@@ -874,6 +905,12 @@ end
 ---@param pitch number percent, 100 = the file's own pitch
 ---@param ease number? seconds to glide over; omitted or 0 applies it immediately
 function MANAGED:SetPitch(pitch, ease)
+    local patch = self.patch
+    if patch then
+        -- a CSoundPatch eases a pitch change itself, so hand the glide straight to it
+        patch:ChangePitch(pitch, ease or 0)
+        return
+    end
     local rate = math.max(pitch, 1) / 100
     if ease and ease > 0 then
         self.rate_to = rate
@@ -889,6 +926,13 @@ end
 
 function MANAGED:Stop()
     self.stopped = true
+    local patch = self.patch
+    if patch then
+        patch:Stop()
+        self.patch = nil
+        drop(self)
+        return
+    end
     if IsValid(self.chan) then
         self.chan:Stop()
     end
@@ -938,6 +982,16 @@ local function playManaged(opts)
         heal_left = 0,
     }, MANAGED)
     table.insert(Doors.ActiveManagedSounds, handle)
+
+    -- The comparison path. A CSoundPatch has to hang off an entity, so a sound given only a fixed
+    -- position has nothing to attach to and stays on the managed channel - it is the one case with no
+    -- engine equivalent to compare against.
+    if engineMode:GetBool() and IsValid(opts.ent) then
+        local patch = CreateSound(opts.ent --[[@as Entity]], opts.path)
+        handle.patch = patch
+        patch:PlayEx(handle.base, 100)
+        return handle
+    end
 
     -- A loop whose file opens with an intro plays that intro from the original and hands over to a
     -- trimmed copy that BASS can loop whole-file. Both are loaded before either is heard, so the body
@@ -1125,6 +1179,11 @@ hook.Add("Think", "doors_managed_sounds", function()
         if handle.owner ~= nil and not IsValid(handle.owner) then
             -- owner deleted: stop, like the entity's own EmitSounds would have
             handle:Stop()
+        elseif handle.patch then
+            -- the engine owns everything about this one except the caller's own volume, so only the
+            -- fade still needs running - and it feeds the same pre-distance value ChangeVolume takes
+            stepFade(handle)
+            if not handle.stopped then handle.patch:ChangeVolume(handle.base, 0) end
         else
             stepHandover(handle)
             local chan = handle.chan

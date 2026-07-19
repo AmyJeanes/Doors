@@ -177,8 +177,8 @@ function RIG:RefreshList()
     for k, h in ipairs(self.rows) do
         local line = list:GetLine(k)
         if IsValid(line) then
-            line:SetColumnText(2, h.res.int and "through a doorway" or describe(h))
-            line:SetColumnText(3, string.format("%.1f dB", toDb(h.volume)))
+            line:SetColumnText(2, h.patch and "engine" or (h.res.int and "through a doorway" or describe(h)))
+            line:SetColumnText(3, h.patch and "-" or string.format("%.1f dB", toDb(h.volume)))
         end
     end
 end
@@ -415,6 +415,14 @@ function RIG:Open(reveal)
     slider("SNDLVL of the test sound", 40, 120, 0, cfg, "level", testFocused)
     slider("volume of the test sound", 0, 1, 2, cfg, "volume", testFocused)
 
+    -- The A/B. Everything below stops meaning anything while this is on, because none of it is ours to
+    -- compute any more - which is the comparison.
+    label("Compare against the engine")
+    local engine = scroll:Add("DCheckBoxLabel")
+    engine:Dock(TOP) engine:DockMargin(6, 6, 6, 0)
+    engine:SetText("play everything the way Source would, with no library in the way")
+    engine:SetConVar("doors_sound_engine")
+
     label("Aperture - a flat gain, 1 when the door is fully open")
     slider("closed coefficient", 0, 1, 3, tuning, "closed")
     slider("openness curve exponent", 0.25, 5, 2, tuning, "curve")
@@ -441,6 +449,11 @@ function RIG:Open(reveal)
         if snd == nil then
             draw.SimpleText("pick a sound above", "DermaDefault", w / 2, h / 2, Color(150, 90, 90),
                 TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+            return
+        end
+        if snd.patch then
+            draw.SimpleText("played by the engine - nothing here is ours to measure", "DermaDefault",
+                w / 2, h / 2, Color(150, 140, 90), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
             return
         end
         local res = snd.res
@@ -479,7 +492,7 @@ function RIG:Open(reveal)
     function plot:Paint(w, h)
         draw.RoundedBox(4, 0, 0, w, h, Color(26, 28, 34))
         local snd = RIG.focus
-        if snd == nil then return end
+        if snd == nil or snd.patch then return end
         local res = snd.res
         local lvl = snd.level or 75
         local pad = 30
@@ -586,6 +599,12 @@ function RIG:Stats()
         line("STATE", #Doors.ActiveManagedSounds == 0
             and "nothing playing - press PLAY for a test sound"
             or "pick a sound from the list")
+        return table.concat(out, "\n")
+    end
+    if snd.patch then
+        line("SOUND", snd.path)
+        line("ENGINE", string.format("played by Source at volume %.3f - distance, pan and looping are "
+            .. "all its own, so nothing below applies", snd.base))
         return table.concat(out, "\n")
     end
     local res = snd.res
