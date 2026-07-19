@@ -260,8 +260,8 @@ end
 ---@field rate_ease number? seconds the rate ease takes to close most of the gap
 ---@field res doors_sound_resolution where the sound is heard from this frame, and what a doorway did to it
 ---@field res_frame number frame the resolution was last computed on, so it is computed once per frame
----@field heal_db number size of a captured space change still being faded out
----@field heal_left number seconds of that fade remaining
+---@field heal_from number? gain the sound was at when it last changed space, glided away from
+---@field heal_left number seconds of that glide remaining
 ---@field last_space gmod_door_interior? space the sound was in last frame, nil for the open world
 ---@field last_listener_space gmod_door_interior? space the listener was in last frame
 ---@field last_gain number? last frame's gain, so a space change can be captured as a step
@@ -364,12 +364,6 @@ local SIZE_NEUTRAL = 16384
 -- The floor on any transition: long enough that a listener changing space does not click, short enough
 -- to be over before a teleport has finished resolving on screen.
 local TRANSITION_FLOOR = 0.5
-
----@param gain number
----@return number
-local function toDb(gain)
-    return 20 * math.log10(math.max(gain, 1e-6))
-end
 
 -- Which way a doorway faces: its authored forward, which already points into the space you stand in to
 -- use it - out into the world for an exterior, into the room for an interior.
@@ -587,16 +581,14 @@ local function resolve(handle)
     -- Changing space is the only real discontinuity, and it cannot be smoothed by blending the in-space
     -- gain against the cross-boundary one: each is valid only in its own space, so the moment the
     -- listener steps out, the in-space one is measuring the emitter across the void and the blend fades
-    -- in from silence. Capture the step in dB at the instant it happens and heal that to nothing
-    -- instead, which leaves ordinary distance changes completely alone.
+    -- in from silence. So hold the level the sound was already at and glide from there to wherever it
+    -- now belongs, which leaves ordinary distance changes completely alone.
     local gain = res.gain
     if handle.level then gain = gain * sndLevelGain(res.dist, handle.level) end
     if handle.last_space ~= space or handle.last_listener_space ~= listenerSpace then
-        local was = handle.last_gain
-        if was then -- nil on the first resolve, where there is no step to capture
-            handle.heal_db = math.Clamp(toDb(was) - toDb(gain), -60, 60)
-            handle.heal_left = TRANSITION_FLOOR
-        end
+        -- nil on the first resolve, where there is nothing to glide from
+        handle.heal_from = handle.last_gain
+        handle.heal_left = handle.heal_from and TRANSITION_FLOOR or 0
         handle.last_space, handle.last_listener_space = space, listenerSpace
     end
     handle.last_gain = gain
@@ -607,7 +599,13 @@ local function resolve(handle)
         healing = math.max(handle.heal_left, 0) / TRANSITION_FLOOR
     end
     res.healing = healing
-    res.heal = healing > 0 and 10 ^ (handle.heal_db * healing / 20) or 1
+    -- Re-measured against the CURRENT gain every frame rather than held as the dB step it started out
+    -- as. A fixed step multiplies whatever the target has since become, and crossing a doorway moves
+    -- the listener, so the target moves hugely in the very frames that follow - which turned a 60 dB
+    -- capture into a thousandfold overdrive and a burst of clipping. Interpolating instead keeps the
+    -- result between the level it came from and the one it is going to, so it cannot overshoot either.
+    local from = handle.heal_from
+    res.heal = (healing > 0 and from) and (from / math.max(gain, 1e-6)) ^ healing or 1
     return res
 end
 
@@ -855,6 +853,11 @@ local function applyGain(handle)
         handle.volume = scalar
     end
 
+    -- Every term feeding this is an attenuation, so it is a gain and never an amplification. Held to
+    -- that at the one place it is decided, because BASS will happily take more than full scale and clip
+    -- into noise rather than refuse - the engine caps its own volume input for exactly the same reason.
+    handle.volume = math.min(handle.volume, 1)
+
     local x = handle.xfade
     local main, intro = handle.chan, handle.intro
     if main ~= nil and IsValid(main) then
@@ -993,7 +996,6 @@ local function playManaged(opts)
         stopped = false,
         res = newResolution(),
         res_frame = -1,
-        heal_db = 0,
         heal_left = 0,
     }, MANAGED)
     table.insert(Doors.ActiveManagedSounds, handle)

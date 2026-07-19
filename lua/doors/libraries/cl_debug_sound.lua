@@ -611,7 +611,8 @@ function RIG:Stats()
     line("SOUND", string.format("%s   base %.3f -> playing %.4f%s", snd.path, snd.base, snd.volume,
         snd.omni and "   stereo wav, so omni and unpanned" or ""))
     line("SETTLING", res.healing > 0
-        and string.format("%.0f%% of a %.1f dB space change left to fade", res.healing * 100, snd.heal_db)
+        and string.format("%.0f%% of a space change left, gliding from %.1f dB", res.healing * 100,
+            toDb(snd.heal_from or 1))
         or "settled")
     if res.int == nil then
         line("PATH", string.format("%.0fu, no doorway between you and it", res.dist))
