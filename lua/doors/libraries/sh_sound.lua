@@ -143,6 +143,16 @@ local function sndLevelGain(dist, level)
     return gain
 end
 
+-- Exposed so a consumer can predict what a positioned sound will be heard at without playing one -
+-- a tuning or debug tool needs the engine's own curve, and reimplementing it there would fork it.
+---@api
+---@param dist number units from the listener
+---@param level number SNDLVL (0 = no attenuation)
+---@return number gain 0-1, before occlusion, spatialisation and the mixer
+function Doors:DistanceGain(dist, level)
+    return sndLevelGain(dist, level)
+end
+
 -- A file whose loop begins partway in can't be looped correctly by BASS, which always wraps to sample
 -- zero - and no amount of seeking from Lua fixes that, because the position we can observe isn't the
 -- one being heard. So hand BASS a file that *is* the loop: copy the samples from the marker onwards
