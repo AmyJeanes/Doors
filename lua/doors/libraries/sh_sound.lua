@@ -276,6 +276,16 @@ local function drop(handle)
     table.RemoveByValue(Doors.ActiveManagedSounds, handle)
 end
 
+-- Source stores a channel's volume as a byte and clamps it at full scale, so anything a caller passes
+-- above 1 is silently ignored - and content in the wild leans on that without knowing, carrying volumes
+-- of 10 or 50 that the engine has always quietly capped. A BASS channel amplifies instead, where a 10
+-- would play 20 dB too loud, so the cap has to be reproduced rather than assumed.
+---@param volume number?
+---@return number
+local function callerVolume(volume)
+    return math.Clamp(volume or 1, 0, 1)
+end
+
 -- world position the falloff is measured from: ent (+ local offset), or a fixed pos. A followed entity
 -- that teleports (pin_on_jump) or is removed leaves the sound pinned at its last position instead of
 -- dragging the tail across the map or going global; a pinned sound with an `attach` entity starts
@@ -872,6 +882,7 @@ end
 ---@param volume number
 ---@param time number? seconds to fade over; omitted or 0 applies it immediately
 function MANAGED:SetVolume(volume, time)
+    volume = callerVolume(volume)
     if time and time > 0 then
         self.fade_to = volume
         self.fade_left = time
@@ -962,8 +973,8 @@ local function playManaged(opts)
         path = opts.path,
         owner = opts.owner,
         tag = opts.tag,
-        base = opts.volume or 1,
-        volume = opts.volume or 1,
+        base = callerVolume(opts.volume),
+        volume = callerVolume(opts.volume),
         ent = opts.ent,
         pos = opts.pos,
         offset = opts.offset,
