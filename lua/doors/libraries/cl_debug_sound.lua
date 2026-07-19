@@ -1,133 +1,54 @@
--- Cross-boundary audio: a tuning panel for how a doorway affects sound passing through it.
+-- Cross-boundary audio: a panel for watching and tuning what a doorway does to sound passing through it.
 --
--- Open with the console command `doors_debug_sound`. It lives in the context menu, so hold C to
--- adjust and release C to walk - the sound keeps resolving either way, because it is driven from a
--- Think hook rather than from the panel, and walking is how falloff is actually judged.
+-- Open with the console command `doors_debug_sound`. It lives in the context menu, so hold C to adjust
+-- and release C to walk - everything keeps updating either way, because it is driven from a Think hook
+-- rather than from the panel, and walking is how falloff is actually judged.
 --
--- It prototypes rather than mocks: it plays a real Doors:PlaySound handle and then owns that handle's
--- position and volume each frame, clearing its level so the library does not also apply its own. So
--- the model below computes the whole distance chain, while pan, occlusion, the mixer constant and the
--- master volume stay the shipping path underneath.
---
--- The model. A doorway is two effects on top of an ordinary sound, never a replacement for one. The
--- baseline is the plain engine falloff over the *whole* path the sound travels - out to the doorway
--- and on to the listener - and the doorway then takes away:
---
---   1. aperture     a flat gain, exactly 1 when fully open, below 1 as the door shuts, never 0
---   2. extra falloff dB per 1000u, for each halving of the doorway below the size at which it stops
---                    mattering; exactly 0 at the doorway itself and 0 for a large enough opening
---   3. directivity   a doorway throws its sound outward, so behind it you hear only what bends round
---
--- All three vanish at the doorway with it open, which is the invariant the whole thing rests on:
--- standing in an open doorway is identical to standing in the room, not merely close to it.
-
----@class doors_sound_debug_side
----@field ent Entity the interior or exterior the doorway belongs to
----@field portal doors_portal_side
+-- The model itself lives in sh_sound.lua; this only reads the resolution it leaves on each handle, so
+-- what the panel shows is exactly what is playing. The tuning sliders write Doors.SoundTuning live and
+-- every managed sound picks that up on its next frame, so the numbers can be judged against a real
+-- interior hum. The test sound is only there for when nothing else is playing.
 
 ---@class doors_sound_debug_sample
 ---@field name string
 ---@field path string
----@field space string "interior" or "exterior" - which side it is emitted from
+---@field space string "interior" or "exterior" - which side to emit it from
 
 ---@class doors_sound_debug_cfg
----@field closed number aperture when fully shut; open is 1 by definition and is not a setting
----@field curve number exponent on openness, so a door barely cracked does not jump to full
----@field falloff number dB per 1000u, per halving of the doorway below SIZE_NEUTRAL
----@field aim number 0 radiates every way equally, 1 silent directly behind
----@field size_override number pretend the doorway is this many square units; 0 uses the real one
----@field level number the sound's own SNDLVL
----@field volume number
+---@field level number SNDLVL of the test sound
+---@field volume number caller volume of the test sound
 ---@field draw3d boolean mark the sound and the doorway in the world
----@field manual boolean drive openness from the slider instead of the real door
+---@field manual boolean hold the door at a chosen openness instead of following the real one
 ---@field openness number
-
----@class doors_sound_debug_info
----@field ok boolean
----@field why string?
----@field int gmod_door_interior?
----@field inside boolean
----@field sameSpace boolean
----@field openness number
----@field aperture number
----@field area number
----@field realArea number
----@field d1 number emitter to its own doorway
----@field d2 number listener's doorway to the listener
----@field halvings number
----@field dbPer1000 number
----@field extra number
----@field facing number
----@field directivity number
----@field direct number gain if the listener shares the emitter's space
----@field folded number free field over the whole path
----@field cross number gain through the doorway
----@field gain number what is actually playing
----@field healing number 0-1 of a captured space-change step still to fade
----@field path number distance from the sound along the path it travels
----@field pos Vector where the sound is played from
----@field emitterPos Vector where the sound actually is
----@field listenerMouth Vector nearest point on the listener's doorway
----@field listenerSide doors_sound_debug_side?
----@field sourceSide doors_sound_debug_side?
 
 ---@class doors_sound_debug
 ---@field cfg doors_sound_debug_cfg
----@field defaults doors_sound_debug_cfg
----@field info doors_sound_debug_info
 ---@field samples doors_sound_debug_sample[]
 ---@field sel number
+---@field rows doors_managed_sound[] list rows, by line id
 ---@field frame DFrame?
----@field snd doors_managed_sound?
----@field openness number? rate-limited, so it cannot cross faster than the transition floor
----@field heal_db number
----@field heal_left number
----@field was_sameSpace boolean?
----@field last_target number?
+---@field list DListView?
+---@field snd doors_managed_sound? the test sound, when one is playing
+---@field focus doors_managed_sound? the sound the readouts describe
+---@field held gmod_door_exterior? door currently being held open by hand
 local RIG = {}
 
--- Autorefresh re-runs this file, which would orphan the old panel inside the context menu and leave
--- its sound playing with nothing driving it.
+-- Autorefresh re-runs this file, which would orphan the old panel inside the context menu and leave its
+-- sound playing with nothing driving it.
 if Doors.SoundDebug then
-    if IsValid(Doors.SoundDebug.frame) then Doors.SoundDebug.frame:Remove() end
-    if IsValid(Doors.SoundDebug.snd) then Doors.SoundDebug.snd:Stop() end
+    Doors.SoundDebug:Close()
 end
 Doors.SoundDebug = RIG
 
 RIG.cfg = {
-    closed        = 0.12,
-    curve         = 2.00,
-    falloff       = 3.00,
-    aim           = 0.70,
-    size_override = 0,
-    level         = 75,
-    volume        = 1.00,
-    draw3d        = true,
-    manual        = false,
-    openness      = 1.00,
+    level    = 75,
+    volume   = 1.00,
+    draw3d   = true,
+    manual   = false,
+    openness = 1.00,
 }
-RIG.defaults = table.Copy(RIG.cfg)
--- built through a typed return rather than annotated as a literal, which would be checked against
--- every field of the class before a single resolve has filled them in
----@return doors_sound_debug_info
-local function newInfo() return { ok = false } end
-RIG.info = newInfo()
-RIG.heal_db, RIG.heal_left = 0, 0
+RIG.rows = {}
 RIG.sel = 1
-
--- The doorway area at and above which size stops mattering - an opening this big is acoustically just
--- a gap in the wall. Roughly 128x128, a plain physical size rather than anything drawn from one
--- consumer's content, since doorways range from a cupboard to thousands of units a side.
---
--- This is the falloff setting's other half and deliberately not a second slider: strength * halvings
--- expands to strength * (log2(NEUTRAL) - log2(area)), so moving it shifts every doorway together
--- while the slider changes how much size separates them. Having both adjustable made neither
--- readable. It is pinned by a physical question instead, so it can be answered once and left alone.
-local SIZE_NEUTRAL = 16384
-
--- The floor on any transition. Long enough that a listener changing space does not click, short
--- enough that it is over before a teleport has finished resolving on screen.
-local TRANSITION_FLOOR = 0.5
 
 local DBFLOOR = -60 -- bottom of the graph
 
@@ -137,254 +58,149 @@ local function toDb(gain)
     return 20 * math.log10(math.max(gain, 1e-6))
 end
 
---------------------------------------------------------------------------------------------------
--- Geometry
---------------------------------------------------------------------------------------------------
-
--- Where a sound sits when it is "in the room": the middle of the space, not the entity origin, which
--- for a resizable interior can be off at one wall.
----@param ent Entity
----@return Vector
-local function middleOf(ent)
-    local c = ent:OBBCenter()
-    if c:IsZero() then return ent:GetPos() end
-    return ent:LocalToWorld(c)
-end
-
--- Which way a doorway faces: its authored forward, which already points into the space you stand in
--- to use it - out into the world for an exterior, into the room for an interior.
---
--- Deriving the sign instead, by pointing it away from the middle of the entity the doorway sits in,
--- looks more robust and is worse. A free-standing doorframe has its opening essentially at its own
--- centre, so there is no "away" to find and the test lands on a rounding error; and on an interior it
--- gets the answer backwards, pointing out through the wall. The author already said which way it faces.
----@param side doors_sound_debug_side
----@return Vector
-local function mouthNormal(side)
-    return side.ent:LocalToWorldAngles(side.portal.ang):Forward()
-end
-
--- The nearest point on a doorway to `p`, rather than its centre.
---
--- Treating a doorway as a point is only harmless while it is small - at a 50x92 door the worst case is
--- about 50 units. Doorways reach thousands of units a side, where standing in the corner of the
--- opening is thousands from its centre, so a centre-based distance would call you far away while you
--- are stood in it. Clamping into the rectangle costs nothing and holds at any size.
----@param side doors_sound_debug_side
----@param p Vector
----@return Vector
-local function mouthPoint(side, p)
-    local portal = side.portal
-    local centre = side.ent:LocalToWorld(portal.pos)
-    local ang = side.ent:LocalToWorldAngles(portal.ang)
-    local right, up = ang:Right(), ang:Up()
-    local d = p - centre
-    return centre
-        + right * math.Clamp(d:Dot(right), -portal.width / 2, portal.width / 2)
-        + up * math.Clamp(d:Dot(up), -portal.height / 2, portal.height / 2)
-end
-
----@param side doors_sound_debug_side
----@return Vector[]
-local function mouthCorners(side)
-    local portal = side.portal
-    local centre = side.ent:LocalToWorld(portal.pos)
-    local ang = side.ent:LocalToWorldAngles(portal.ang)
-    local r, u = ang:Right() * (portal.width / 2), ang:Up() * (portal.height / 2)
-    return { centre - r - u, centre + r - u, centre + r + u, centre - r + u }
-end
-
--- Both sides of the boundary, and the area of the tighter of the two.
----@param int gmod_door_interior
----@return doors_sound_debug_side? interior
----@return doors_sound_debug_side? exterior
----@return number area
-local function sides(int)
-    local ext = int.exterior
-    if not IsValid(ext) then return nil, nil, 0 end
-    local ip, ep = int:GetDoorway(), ext:GetDoorway()
-    if not ip or not ep then return nil, nil, 0 end
-    return { ent = int, portal = ip }, { ent = ext, portal = ep },
-        math.min(ip.width * ip.height, ep.width * ep.height)
-end
-
--- The interior under test: the one the local player is immediately in, else the nearest.
---
--- `doori` rather than any "am I inside" helper, because interiors nest - a shell parked inside another
--- makes those true for every interior up the chain, so they answer "somewhere within" rather than
--- "which space am I in". Resolving a boundary needs the immediate one.
----@return gmod_door_interior?
-local function findInterior()
-    local ply = LocalPlayer()
-    local doori = IsValid(ply) and ply.doori or nil
-    if IsValid(doori) and IsValid(doori.exterior) then return doori end
-    local best, bestd
-    for _, ent in ipairs(ents.GetAll()) do
-        if ent.DoorInterior and IsValid(ent.exterior) then
-            local d = EyePos():DistToSqr(ent.exterior:GetPos())
-            if not bestd or d < bestd then best, bestd = ent, d end
-        end
-    end
-    return best
-end
-
---------------------------------------------------------------------------------------------------
--- The model
---------------------------------------------------------------------------------------------------
-
--- Convenient test material, not a dependency: these are just two long loops that happen to be to hand
--- and that tuning was done against. Nothing here reads a consumer's content - any other path can be
--- typed into the box on the panel.
+-- Convenient test material, not a dependency: two long loops that happen to be to hand and that tuning
+-- was done against. Nothing here reads a consumer's content - any other path goes in the box.
 RIG.samples = {
     { name = "steady hum, from the interior", path = "p00gie/tardis/default/hum.wav", space = "interior" },
     { name = "steady hum, from the exterior", path = "p00gie/tardis/default/hum.wav", space = "exterior" },
     { name = "busier loop, from the exterior", path = "drmatt/tardis/flight_loop.wav", space = "exterior" },
 }
 
----@param int gmod_door_interior
----@return number
-function RIG:Openness(int)
-    if self.cfg.manual then return self.cfg.openness end
-    local ext = int.exterior
-    if IsValid(ext) then return math.Clamp(ext:GetDoorOpenness(), 0, 1) end
-    return 1
+--------------------------------------------------------------------------------------------------
+-- Holding a door open
+--------------------------------------------------------------------------------------------------
+
+-- The library reads openness through the consumer's own GetDoorOpenness, so hold the door by overriding
+-- that on the one entity rather than adding a debug path to the library. Cleared back to nil, which
+-- restores the class method the override was shadowing.
+function RIG:ReleaseDoor()
+    local ext = self.held
+    if IsValid(ext) then ext.GetDoorOpenness = nil end
+    self.held = nil
 end
 
----@return doors_sound_debug_info
-function RIG:Resolve()
-    local cfg = self.cfg
-    local i = self.info
-    i.ok = false
+---@param ext gmod_door_exterior?
+function RIG:HoldDoor(ext)
+    if not self.cfg.manual or not IsValid(ext) then return self:ReleaseDoor() end
+    if self.held == ext then return end
+    self:ReleaseDoor()
+    self.held = ext
+    function ext:GetDoorOpenness() return RIG.cfg.openness end
+end
 
-    local int = findInterior()
-    if not IsValid(int) then i.why = "no interior found" return i end
-    ---@cast int gmod_door_interior
-    local sample = self.samples[self.sel]
-    if not sample then i.why = "no sound selected" return i end
+--------------------------------------------------------------------------------------------------
+-- What is playing
+--------------------------------------------------------------------------------------------------
 
-    local intSide, extSide, area = sides(int)
-    if not (intSide and extSide) then i.why = "no doorway on this interior" return i end
-
+-- The interior to put the test sound in: the one the local player is immediately in, else the nearest.
+--
+-- `doori` rather than any "am I inside" helper, because interiors nest - a shell parked inside another
+-- makes those true for every interior up the chain, so they answer "somewhere within" rather than "which
+-- space am I in".
+---@return gmod_door_interior?
+local function findInterior()
     local ply = LocalPlayer()
-    local inside = IsValid(ply) and ply.doori == int or false
-
-    local emitterEnt = sample.space == "interior" and int or int.exterior
-    local emitterPos = IsValid(emitterEnt) and middleOf(emitterEnt) or EyePos()
-    local sameSpace = (sample.space == "interior") == inside
-
-    -- Which doorway is which follows from whose side it is on, never from where the listener is: the
-    -- emitter always radiates into the one on its own side. Keying either off the listener makes the
-    -- source leg measure across the void the moment both are in the same space.
-    local sourceSide = sample.space == "interior" and intSide or extSide
-    local listenerSide = inside and intSide or extSide
-    local sourceMouth = mouthPoint(sourceSide, emitterPos)
-    local listenerMouth = mouthPoint(listenerSide, EyePos())
-
-    -- Rate-limit openness rather than everything derived from it, so one floor covers a door
-    -- animating, a door with no animation at all, and a value yanked by hand.
-    local raw = self:Openness(int)
-    self.openness = math.Approach(self.openness or raw, raw, FrameTime() / TRANSITION_FLOOR)
-    local openness = self.openness
-
-    local aperture = cfg.closed + (1 - cfg.closed) * openness ^ cfg.curve
-
-    local d1 = emitterPos:Distance(sourceMouth)
-    local d2 = EyePos():Distance(listenerMouth)
-
-    local realArea = area
-    if cfg.size_override > 0 then area = cfg.size_override end
-    -- How many times the doorway would have to double to stop being small. Log-scaled because areas
-    -- span orders of magnitude across consumers, and clamped at zero so a large opening is merely
-    -- unpenalised rather than credited - this term must never be able to make anything louder.
-    local halvings = math.max(0, math.log(SIZE_NEUTRAL / math.max(area, 1), 2))
-    local dbPer1000 = cfg.falloff * halvings
-    local extra = 10 ^ (-(dbPer1000 * d2 / 1000) / 20)
-
-    -- Linear in the cosine, which is gentle - a hum is low-frequency, and low frequencies are the
-    -- least directional thing there is. At the doorway itself the direction is meaningless, so 1.
-    local facing = 1
-    if d2 > 1 then
-        facing = mouthNormal(listenerSide):Dot((EyePos() - listenerMouth):GetNormalized())
+    local doori = IsValid(ply) and ply.doori or nil
+    if IsValid(doori) and IsValid(doori.exterior) then return doori end
+    local best, bestd
+    for int in pairs(Doors:GetInteriors()) do
+        if IsValid(int) and IsValid(int.exterior) then
+            local d = EyePos():DistToSqr(int.exterior:GetPos())
+            if not bestd or d < bestd then best, bestd = int, d end
+        end
     end
-    local directivity = 1 - cfg.aim * 0.5 * (1 - facing)
-
-    local direct = Doors:DistanceGain(EyePos():Distance(emitterPos), cfg.level)
-    -- Attenuating each leg of the path separately instead - the obvious two-stage reading - is wrong
-    -- against Source's curve, which compresses gain above 0.5: two short legs both sit in the flat
-    -- part and together lose LESS than one long leg, so a doorway made things louder, and the sign of
-    -- the error flipped with distance. Free field over the true path, then take away, is predictable.
-    local folded = Doors:DistanceGain(d1 + d2, cfg.level)
-    local cross = folded * aperture * extra * directivity
-
-    local target = sameSpace and direct or cross
-
-    -- Changing space is the only real discontinuity, and it cannot be smoothed by blending the two
-    -- gains: each is valid only in its own space. The moment you step out, the in-space one is
-    -- measuring the emitter's world position across the void, so blending from it fades in from
-    -- silence. Capture the step in dB at the instant it happens and heal that to nothing instead,
-    -- which leaves ordinary distance changes completely alone.
-    if self.was_sameSpace == nil then self.was_sameSpace = sameSpace end
-    if sameSpace ~= self.was_sameSpace then
-        self.heal_db = math.Clamp(toDb(self.last_target or target) - toDb(target), -60, 60)
-        self.heal_left = TRANSITION_FLOOR
-        self.was_sameSpace = sameSpace
-    end
-    self.last_target = target
-
-    local gain, healing = target, 0
-    if self.heal_left > 0 then
-        self.heal_left = self.heal_left - FrameTime()
-        healing = math.max(self.heal_left, 0) / TRANSITION_FLOOR
-        gain = target * 10 ^ (self.heal_db * healing / 20)
-    end
-
-    i.ok, i.why = true, nil
-    i.int, i.inside, i.sameSpace = int, inside, sameSpace
-    i.openness, i.aperture, i.area, i.realArea = openness, aperture, area, realArea
-    i.d1, i.d2, i.halvings, i.dbPer1000, i.extra = d1, d2, halvings, dbPer1000, extra
-    i.facing, i.directivity = facing, directivity
-    i.direct, i.folded, i.cross = direct, folded, cross
-    i.gain, i.healing = gain, healing
-    -- Distance from the sound along the path it actually travels. Measuring from the doorway instead
-    -- makes the axis mean opposite things on the two sides - walking to the door is walking away from
-    -- a sound in the middle of the room.
-    i.path = sameSpace and EyePos():Distance(emitterPos) or (d1 + d2)
-    i.pos = sameSpace and emitterPos or listenerMouth
-    i.emitterPos, i.listenerMouth = emitterPos, listenerMouth
-    i.listenerSide, i.sourceSide = listenerSide, sourceSide
-    return i
+    return best
 end
 
---------------------------------------------------------------------------------------------------
--- Driving a real handle
---------------------------------------------------------------------------------------------------
+function RIG:Stop()
+    local snd = self.snd
+    if snd ~= nil and not snd.stopped then snd:Stop() end
+    if self.focus == snd then self.focus = nil end
+    self.snd = nil
+end
 
 function RIG:Play()
     self:Stop()
     local sample = self.samples[self.sel]
-    if not sample then return end
-    self.snd = Doors:PlaySound({ path = sample.path, pos = EyePos(), loop = true, volume = 0 })
+    local int = findInterior()
+    if not (sample and IsValid(int)) then return end
+    ---@cast int gmod_door_interior
+    local ent = sample.space == "interior" and int or int.exterior
+    if not IsValid(ent) then return end
+    -- from the middle of the space rather than the entity origin, which on a resizable interior can sit
+    -- out at one wall
+    self.snd = Doors:PlaySound({
+        path = sample.path, ent = ent, offset = ent:OBBCenter(), loop = true,
+        volume = self.cfg.volume, level = self.cfg.level,
+    })
+    self.focus = self.snd
 end
 
-function RIG:Stop()
-    if IsValid(self.snd) then self.snd:Stop() end
-    self.snd = nil
+---@return boolean
+function RIG:CanPlay()
+    return IsValid(findInterior())
+end
+
+---@param h doors_managed_sound
+---@return string
+local function describe(h)
+    local ent = h.ent
+    if IsValid(ent) then return ent:GetClass() end
+    return h.pos and "fixed point" or "no position"
+end
+
+-- Rows follow Doors.ActiveManagedSounds, rebuilt only when that set changes so a selection survives.
+function RIG:RefreshList()
+    local list = self.list
+    if not IsValid(list) then return end
+    ---@cast list DListView
+    local active = Doors.ActiveManagedSounds
+    local stale = #active ~= #self.rows
+    if not stale then
+        for k, h in ipairs(active) do
+            if self.rows[k] ~= h then stale = true break end
+        end
+    end
+
+    if stale then
+        list:Clear()
+        local rows = {} ---@type doors_managed_sound[]
+        self.rows = rows
+        for k, h in ipairs(active) do
+            rows[k] = h
+            local name = string.GetFileFromFilename(h.path) or h.path
+            local line = list:AddLine(h == self.snd and (name .. "  (test)") or name, describe(h), "")
+            if h == self.focus then list:SelectItem(line) end
+        end
+    end
+
+    for k, h in ipairs(self.rows) do
+        local line = list:GetLine(k)
+        if IsValid(line) then
+            line:SetColumnText(2, h.res.int and "through a doorway" or describe(h))
+            line:SetColumnText(3, string.format("%.1f dB", toDb(h.volume)))
+        end
+    end
 end
 
 local function think()
     local ok, err = pcall(function()
-        local i = RIG:Resolve()
-        local h = RIG.snd
-        -- `h ~= nil`, not IsValid: a handle's IsValid means "has a channel", and the channel loads
-        -- asynchronously. Gating on it would skip exactly the frames before the load lands, so the
-        -- volume would still be at its placeholder when the channel starts and jump a frame later.
-        if h == nil or h.stopped or not i.ok then return end
-        -- clearing the level stops the library applying its own distance gain on top of ours; pan,
-        -- occlusion, the mixer constant and master volume stay the shipping path
-        h.level = nil
-        h.ent = nil
-        h.pos = i.pos
-        h.base = RIG.cfg.volume * i.gain
+        local focus = RIG.focus
+        -- a sound that finished is dropped from the active list without being stopped
+        if focus and not table.HasValue(Doors.ActiveManagedSounds, focus) then
+            if focus == RIG.snd then RIG.snd = nil end
+            RIG.focus = nil
+            focus = nil
+        end
+        local int = focus and focus.res.int or findInterior()
+        RIG:HoldDoor(IsValid(int) and int.exterior or nil)
+
+        -- the two sliders that are ours to move, pushed at the handle rather than only read when it
+        -- starts, so they can be judged while it plays
+        local snd = RIG.snd
+        if snd ~= nil and not snd.stopped then
+            snd.base, snd.level = RIG.cfg.volume, RIG.cfg.level
+        end
     end)
     if not ok then
         RIG:Close()
@@ -396,10 +212,14 @@ end
 -- World markers
 --------------------------------------------------------------------------------------------------
 
----@param side doors_sound_debug_side
+---@param face doors_sound_face
 ---@param col table
-local function drawMouth(side, col)
-    local c = mouthCorners(side)
+local function drawMouth(face, col)
+    local portal = face.portal
+    local centre = face.ent:LocalToWorld(portal.pos)
+    local ang = face.ent:LocalToWorldAngles(portal.ang)
+    local r, u = ang:Right() * (portal.width / 2), ang:Up() * (portal.height / 2)
+    local c = { centre - r - u, centre + r - u, centre + r + u, centre - r + u }
     for k = 1, 4 do
         render.DrawLine(c[k], c[k % 4 + 1], col, false)
     end
@@ -410,42 +230,45 @@ end
 local function draw3d(_, skybox)
     if skybox or not RIG.cfg.draw3d then return end
     pcall(function()
-        local i = RIG.info
-        if not i.ok then return end
+        local h = RIG.focus
+        if h == nil then return end
+        local res = h.res
+        local emitter = res.emitter
+        if emitter == nil then return end
         render.SetColorMaterial()
 
-        local listener = i.listenerSide
+        local listener = res.listener
         if listener then
             drawMouth(listener, Color(90, 200, 120))
             local c = listener.ent:LocalToWorld(listener.portal.pos)
-            render.DrawLine(c, c + mouthNormal(listener) * 48, Color(90, 200, 120, 200), false)
+            render.DrawLine(c, c + (res.normal or vector_origin) * 48, Color(90, 200, 120, 200), false)
         end
-        if i.sourceSide and i.sourceSide ~= listener then
-            drawMouth(i.sourceSide, Color(70, 120, 190))
+        if res.source and res.source ~= listener then
+            drawMouth(res.source, Color(70, 120, 190))
         end
 
         -- Where the sound actually is - the emitter, not the doorway the model resolves it to, which
         -- across a boundary is a different room entirely. This runs inside portal passes too, so from
         -- outside it shows through the doorway, sitting where the sound really is.
-        local loud = math.Clamp((toDb(i.gain) - DBFLOOR) / -DBFLOOR, 0, 1)
-        render.DrawWireframeSphere(i.emitterPos, 12 + loud * 30, 12, 12,
+        local loud = math.Clamp((toDb(h.volume) - DBFLOOR) / -DBFLOOR, 0, 1)
+        render.DrawWireframeSphere(emitter, 12 + loud * 30, 12, 12,
             Color(255, 200 - loud * 140, 60, 255), false)
-        render.DrawLine(i.emitterPos, i.emitterPos - Vector(0, 0, 96), Color(255, 200, 60, 120), false)
+        render.DrawLine(emitter, emitter - Vector(0, 0, 96), Color(255, 200, 60, 120), false)
 
-        -- and, small, where it is played from once through the doorway - what carries the direction
-        if i.pos ~= i.emitterPos then
-            render.DrawWireframeSphere(i.pos, 7, 6, 6, Color(120, 190, 240, 200), false)
+        -- and, small, where it is heard from once through the doorway - what carries the direction
+        if res.pos and res.pos ~= emitter then
+            render.DrawWireframeSphere(res.pos, 7, 6, 6, Color(120, 190, 240, 200), false)
         end
 
         -- The label rides in the world rather than on the HUD so it travels with the marker through a
         -- doorway; a screen projection is computed against the main view, so it would vanish exactly
         -- when the sound it belongs to is only visible through one.
         local face = Angle(0, EyeAngles().y - 90, 90)
-        cam.Start3D2D(i.emitterPos + Vector(0, 0, 64), face,
-            math.Clamp(EyePos():Distance(i.emitterPos) / 3000, 0.06, 0.6))
-            draw.SimpleText(string.format("%.1f dB", toDb(i.gain)), "DermaLarge", 0, 0,
+        cam.Start3D2D(emitter + Vector(0, 0, 64), face,
+            math.Clamp(EyePos():Distance(emitter) / 3000, 0.06, 0.6))
+            draw.SimpleText(string.format("%.1f dB", toDb(h.volume)), "DermaLarge", 0, 0,
                 Color(255, 220, 120), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-            draw.SimpleText(string.format("%.0fu along the path", i.path), "DermaDefaultBold", 0, 26,
+            draw.SimpleText(string.format("%.0fu along the path", res.dist), "DermaDefaultBold", 0, 26,
                 Color(220, 220, 230), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
         cam.End3D2D()
     end)
@@ -457,10 +280,13 @@ end
 
 function RIG:Close()
     self:Stop()
+    self:ReleaseDoor()
+    self.focus = nil
     hook.Remove("Think", "doors_debug_sound")
     hook.Remove("PostDrawTranslucentRenderables", "doors_debug_sound")
     if IsValid(self.frame) then self.frame:Remove() end
     self.frame = nil
+    self.list = nil
 end
 
 -- Lives in the context menu rather than as a popup, so holding C adjusts and releasing C walks.
@@ -473,10 +299,11 @@ function RIG:Open(reveal)
         return
     end
     local cfg = self.cfg
+    local tuning = Doors.SoundTuning
 
     local f = (IsValid(cmenu) and cmenu:Add("DFrame") or vgui.Create("DFrame")) --[[@as DFrame]]
     self.frame = f
-    f:SetSize(460, 720)
+    f:SetSize(470, 780)
     f:SetPos(40, 40)
     f:SetTitle("Cross-boundary audio")
     f:SetSizable(true)
@@ -510,14 +337,19 @@ function RIG:Open(reveal)
     ---@param min number
     ---@param max number
     ---@param dec number
+    ---@param store table
     ---@param key string
-    local function slider(text, min, max, dec, key)
+    ---@param enabled? fun(): boolean when given, greys the slider out while it returns false
+    local function slider(text, min, max, dec, store, key, enabled)
         local sl = scroll:Add("DNumSlider")
         sl:Dock(TOP) sl:DockMargin(6, 2, 6, 0)
-        sl:SetText(text) sl:SetMinMax(min, max) sl:SetDecimals(dec) sl:SetValue(cfg[key])
+        sl:SetText(text) sl:SetMinMax(min, max) sl:SetDecimals(dec) sl:SetValue(store[key])
         ---@param v number
-        function sl:OnValueChanged(v) cfg[key] = v end
-        widgets[#widgets + 1] = { sl, key }
+        function sl:OnValueChanged(v) store[key] = v end
+        if enabled then
+            function sl:Think() self:SetEnabled(enabled() and true or false) end
+        end
+        if store == tuning then widgets[#widgets + 1] = { sl, key } end
     end
     ---@param text string
     ---@param key string
@@ -527,7 +359,6 @@ function RIG:Open(reveal)
         c:SetText(text) c:SetValue(cfg[key])
         ---@param v boolean
         function c:OnChange(v) cfg[key] = v end
-        widgets[#widgets + 1] = { c, key }
     end
     ---@param text string
     ---@param fn function
@@ -541,7 +372,18 @@ function RIG:Open(reveal)
         end
     end
 
-    label("Sound")
+    label("Sounds playing - pick one to describe below")
+    local list = scroll:Add("DListView")
+    self.list = list
+    list:Dock(TOP) list:DockMargin(6, 2, 6, 0) list:SetTall(120) list:SetMultiSelect(false)
+    list:AddColumn("sound")
+    list:AddColumn("where from"):SetFixedWidth(130)
+    list:AddColumn("level"):SetFixedWidth(60)
+    ---@param id number
+    function list:OnRowSelected(id) RIG.focus = RIG.rows[id] end
+    function list:Think() RIG:RefreshList() end
+
+    label("A test sound, for when nothing else is playing")
     local combo = scroll:Add("DComboBox")
     combo:Dock(TOP) combo:DockMargin(6, 2, 6, 0)
     for k, e in ipairs(self.samples) do combo:AddChoice(e.name, k, k == self.sel) end
@@ -564,78 +406,84 @@ function RIG:Open(reveal)
         RIG:Play()
     end
 
-    -- nothing to play against until a boundary resolves, and `snd ~= nil` rather than IsValid because
-    -- a handle is not valid while its channel is still loading
-    button("PLAY", function() RIG:Play() end, function() return RIG.info.ok end)
+    button("PLAY", function() RIG:Play() end, function() return RIG:CanPlay() end)
     button("Stop", function() RIG:Stop() end, function() return RIG.snd ~= nil end)
 
-    label("Aperture - a flat gain, 1 when fully open")
-    slider("closed coefficient", 0, 1, 3, "closed")
-    slider("openness curve exponent", 0.25, 5, 2, "curve")
+    -- Only the test sound's own level is ours to move; every other handle's belongs to whatever started
+    -- it, and writing to that would be tuning the caller rather than the doorway.
+    local function testFocused() return RIG.focus ~= nil and RIG.focus == RIG.snd end
+    slider("SNDLVL of the test sound", 40, 120, 0, cfg, "level", testFocused)
+    slider("volume of the test sound", 0, 1, 2, cfg, "volume", testFocused)
+
+    label("Aperture - a flat gain, 1 when the door is fully open")
+    slider("closed coefficient", 0, 1, 3, tuning, "closed")
+    slider("openness curve exponent", 0.25, 5, 2, tuning, "curve")
 
     label("What the doorway costs a sound coming through it")
-    slider("dB per 1000u, per halving of the doorway", 0, 30, 2, "falloff")
-    slider("how much it aims its sound (0 = every way)", 0, 1, 2, "aim")
-    -- one interior gives one doorway, which makes the size term impossible to read on its own
-    slider("pretend the doorway is this big (0 = actual)", 0, 30000, 0, "size_override")
-
-    label("Sound level and volume")
-    slider("SNDLVL", 40, 120, 0, "level")
-    slider("caller volume", 0, 1, 2, "volume")
+    slider("dB per 1000u, per halving of the doorway", 0, 40, 2, tuning, "falloff")
+    slider("how much it aims its sound (0 = every way)", 0, 1, 2, tuning, "aim")
 
     label("Door")
-    check("drive openness by hand", "manual")
-    slider("openness", 0, 1, 3, "openness")
+    check("hold the door at a set openness", "manual")
+    slider("openness", 0, 1, 3, cfg, "openness", function() return cfg.manual end)
     check("mark the sound and doorway in the world", "draw3d")
 
-    -- Two absolute numbers rather than a ratio: a ratio drifts as you walk for reasons that have
-    -- nothing to do with the doorway. Left, how loud it is where you stand; right, what the doorway
-    -- costs, which holds still while you move because it depends only on the tuning.
+    -- Two absolute numbers rather than a ratio: a ratio drifts as you walk for reasons that have nothing
+    -- to do with the doorway. Left, how loud it is where you stand; right, what the doorway costs, which
+    -- holds still while you move because it depends only on the tuning.
     local summary = scroll:Add("DPanel")
     summary:Dock(TOP) summary:DockMargin(6, 10, 6, 0) summary:SetTall(62)
     ---@param w number
     ---@param h number
     function summary:Paint(w, h)
-        local i = RIG.info
         draw.RoundedBox(4, 0, 0, w, h, Color(26, 28, 34))
-        if not i.ok then
-            draw.SimpleText(i.why or "-", "DermaDefault", w / 2, h / 2, Color(150, 90, 90),
+        local snd = RIG.focus
+        if snd == nil then
+            draw.SimpleText("pick a sound above", "DermaDefault", w / 2, h / 2, Color(150, 90, 90),
                 TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
             return
         end
+        local res = snd.res
         local half = w / 2
         draw.SimpleText("you hear", "DermaDefault", half / 2, 13, Color(150, 155, 170),
             TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-        draw.SimpleText(string.format("%.1f dB", toDb(i.gain)), "DermaLarge", half / 2, 34,
+        draw.SimpleText(string.format("%.1f dB", toDb(snd.volume)), "DermaLarge", half / 2, 34,
             Color(200, 215, 235), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-        draw.SimpleText(string.format("%.0fu from the sound", i.path), "DermaDefault", half / 2, 52,
+        draw.SimpleText(string.format("%.0fu from the sound", res.dist), "DermaDefault", half / 2, 52,
             Color(130, 135, 150), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 
         surface.SetDrawColor(60, 64, 76)
         surface.DrawRect(half, 8, 1, h - 16)
+        if res.int == nil then
+            draw.SimpleText("no doorway in the path", "DermaDefault", half + half / 2, h / 2,
+                Color(130, 135, 150), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+            return
+        end
         draw.SimpleText("the doorway costs", "DermaDefault", half + half / 2, 13,
             Color(150, 155, 170), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-        draw.SimpleText(string.format("%.1f dB", toDb(i.aperture)), "DermaLarge", half + half / 2, 34,
+        draw.SimpleText(string.format("%.1f dB", toDb(res.aperture)), "DermaLarge", half + half / 2, 34,
             Color(110, 210, 130), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-        draw.SimpleText(string.format("door %.0f%% open", i.openness * 100), "DermaDefault",
+        draw.SimpleText(string.format("door %.0f%% open", res.openness * 100), "DermaDefault",
             half + half / 2, 52, Color(130, 135, 150), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
     end
 
     -- Level against distance FROM THE SOUND, along the path it travels, so walking in any direction
-    -- moves the marker the way you would expect. One continuous curve: plain falloff up to the
-    -- doorway, then the through-the-doorway falloff past it. The step down at the doorway line is the
-    -- aperture and the widening gap to the faint line is the extra falloff, so both are visible at
-    -- once. dB up the side, because linear gain squashes everything interesting into the bottom pixel.
+    -- moves the marker the way you would expect. One continuous curve: plain falloff up to the doorway,
+    -- then the through-the-doorway falloff past it. The step down at the doorway line is the aperture
+    -- and the widening gap to the faint line is the extra falloff, so both are visible at once. dB up
+    -- the side, because linear gain squashes everything interesting into the bottom pixel.
     local plot = scroll:Add("DPanel")
     plot:Dock(TOP) plot:DockMargin(6, 6, 6, 0) plot:SetTall(180)
     ---@param w number
     ---@param h number
     function plot:Paint(w, h)
         draw.RoundedBox(4, 0, 0, w, h, Color(26, 28, 34))
-        local i = RIG.info
-        if not i.ok then return end
+        local snd = RIG.focus
+        if snd == nil then return end
+        local res = snd.res
+        local lvl = snd.level or 75
         local pad = 30
-        local maxd = math.max(1200, i.path * 1.3)
+        local maxd = math.max(1200, res.dist * 1.3)
         local pw, ph = w - pad - 10, h - 34
         surface.SetDrawColor(38, 41, 50)
         surface.DrawRect(pad, 10, pw, ph)
@@ -669,24 +517,27 @@ function RIG:Open(reveal)
             end
         end
 
-        local lvl = RIG.cfg.level
-        curve(1, i.d1, function(d) return Doors:DistanceGain(d, lvl) end, Color(110, 150, 220))
-        curve(i.d1, maxd, function(d) return Doors:DistanceGain(d, lvl) end, Color(70, 85, 120))
-        curve(i.d1, maxd, function(d)
-            return Doors:DistanceGain(d, lvl) * i.aperture * i.directivity
-                * 10 ^ (-(i.dbPer1000 * (d - i.d1) / 1000) / 20)
-        end, Color(110, 210, 130))
+        curve(1, res.int and res.d1 or maxd, function(d)
+            return Doors:DistanceGain(d, lvl)
+        end, Color(110, 150, 220))
+        if res.int then
+            curve(res.d1, maxd, function(d) return Doors:DistanceGain(d, lvl) end, Color(70, 85, 120))
+            curve(res.d1, maxd, function(d)
+                return Doors:DistanceGain(d, lvl) * res.aperture * res.directivity
+                    * 10 ^ (-(res.db_per_1000 * (d - res.d1) / 1000) / 20)
+            end, Color(110, 210, 130))
 
-        local dx = pad + pw * math.Clamp(i.d1 / maxd, 0, 1)
-        surface.SetDrawColor(230, 190, 80, 120)
-        surface.DrawRect(dx - 1, 10, 2, ph)
-        draw.SimpleText("doorway", "DermaDefault", dx + 4, 12, Color(230, 190, 80))
+            local dx = pad + pw * math.Clamp(res.d1 / maxd, 0, 1)
+            surface.SetDrawColor(230, 190, 80, 120)
+            surface.DrawRect(dx - 1, 10, 2, ph)
+            draw.SimpleText("doorway", "DermaDefault", dx + 4, 12, Color(230, 190, 80))
+        end
 
-        local mx = pad + pw * math.Clamp(i.path / maxd, 0, 1)
+        local mx = pad + pw * math.Clamp(res.dist / maxd, 0, 1)
         surface.SetDrawColor(255, 255, 255, 200)
         surface.DrawRect(mx - 1, 10, 2, ph)
         surface.SetDrawColor(255, 255, 255)
-        surface.DrawRect(mx - 3, ypos(i.gain) - 3, 6, 6)
+        surface.DrawRect(mx - 3, ypos(res.gain * res.heal * Doors:DistanceGain(res.dist, lvl)) - 3, 6, 6)
 
         draw.SimpleText("in the room", "DermaDefault", pad + 2, h - 18, Color(110, 150, 220))
         draw.SimpleText("through the doorway", "DermaDefault", pad + 84, h - 18, Color(110, 210, 130))
@@ -703,63 +554,63 @@ function RIG:Open(reveal)
     function readout:Think() self:SetText(RIG:Stats()) end
 
     button("DUMP THESE VALUES", function()
-        local c = RIG.cfg
+        local t = Doors.SoundTuning
         MsgN(string.format([[
 
 -- tuned in doors_debug_sound
-APERTURE_CLOSED  = %.3f   -- fully open is 1 by construction
-APERTURE_CURVE   = %.2f
-DOORWAY_FALLOFF  = %.2f   -- dB per 1000u per halving below %d square units
-DOORWAY_AIM      = %.2f
-]], c.closed, c.curve, c.falloff, SIZE_NEUTRAL, c.aim))
+closed  = %.3f,   -- fully open is 1 by construction
+curve   = %.2f,
+falloff = %.2f,   -- dB per 1000u per halving below SIZE_NEUTRAL
+aim     = %.2f,
+]], t.closed, t.curve, t.falloff, t.aim))
         chat.AddText("dumped to console")
     end)
 
     button("RESET TO DEFAULTS", function()
-        for k, v in pairs(RIG.defaults) do RIG.cfg[k] = v end
+        for k, v in pairs(Doors.SoundTuningDefaults) do tuning[k] = v end
         for _, entry in ipairs(widgets) do
             local pnl = entry[1]
-            if IsValid(pnl) then pnl:SetValue(RIG.cfg[entry[2]]) end
+            if IsValid(pnl) then pnl:SetValue(tuning[entry[2]]) end
         end
     end)
 end
 
 ---@return string
 function RIG:Stats()
-    local i = self.info
     local out = {}
     ---@param k string
     ---@param v string
     local function line(k, v) out[#out + 1] = string.format("%-9s %s", k, v) end
-    if not i.ok then
-        line("STATE", i.why or "resolving")
+    local snd = self.focus
+    if snd == nil then
+        line("STATE", #Doors.ActiveManagedSounds == 0
+            and "nothing playing - press PLAY for a test sound"
+            or "pick a sound from the list")
         return table.concat(out, "\n")
     end
-    line("LISTENER", (i.inside and "inside" or "outside")
-        .. (i.sameSpace and " - same space as the sound, no doorway in the path" or ""))
-    line("SETTLING", i.healing > 0
-        and string.format("%.0f%% of a %.1f dB space change left to fade", i.healing * 100, self.heal_db)
+    local res = snd.res
+    line("SOUND", string.format("%s   base %.3f -> playing %.4f%s", snd.path, snd.base, snd.volume,
+        snd.omni and "   stereo wav, so omni and unpanned" or ""))
+    line("SETTLING", res.healing > 0
+        and string.format("%.0f%% of a %.1f dB space change left to fade", res.healing * 100, snd.heal_db)
         or "settled")
-    line("PATH", string.format("emitter %.0fu -> doorway, doorway %.0fu -> you  (total %.0fu)",
-        i.d1, i.d2, i.path))
-    line("BASELINE", string.format("%.1f dB   free field over the whole path", toDb(i.folded)))
-    line("APERTURE", string.format("%.1f dB   at %.0f%% open", toDb(i.aperture), i.openness * 100))
-    line("FALLOFF", string.format("%.1f dB here   (%.2f dB/1000u = %.2f x %.2f halvings under %d)",
-        toDb(i.extra), i.dbPer1000, self.cfg.falloff, i.halvings, SIZE_NEUTRAL))
-    line("AIM", string.format("%.1f dB   facing %+.2f (%s)", toDb(i.directivity), i.facing,
-        i.facing > 0.3 and "in front of it" or (i.facing < -0.3 and "round the back" or "edge on")))
-    line("DOORWAY", string.format("%.0f square units%s", i.area,
-        self.cfg.size_override > 0 and string.format(" FAKED, really %.0f", i.realArea) or ""))
-    line("RESULT", string.format("%.1f dB playing   (through %.1f, in-space %.1f)",
-        toDb(i.gain), toDb(i.cross), toDb(i.direct)))
-    local h = self.snd
-    if IsValid(h) then
-        ---@cast h doors_managed_sound
-        line("CHANNEL", string.format("base %.4f -> applied %.4f%s", h.base, h.volume,
-            h.omni and "   stereo wav, so omni and unpanned" or ""))
-    else
-        line("CHANNEL", "nothing playing")
+    if res.int == nil then
+        line("PATH", string.format("%.0fu, no doorway between you and it", res.dist))
+        return table.concat(out, "\n")
     end
+    line("LISTENER", res.inside and "inside, and the sound is not" or "outside, and the sound is in")
+    line("PATH", string.format("sound %.0fu -> doorway, doorway %.0fu -> you  (total %.0fu)",
+        res.d1, res.d2, res.dist))
+    line("BASELINE", string.format("%.1f dB   free field over the whole path",
+        toDb(Doors:DistanceGain(res.dist, snd.level or 75))))
+    line("APERTURE", string.format("%.1f dB   at %.0f%% open", toDb(res.aperture), res.openness * 100))
+    line("FALLOFF", string.format("%.1f dB here   (%.2f dB/1000u from a %.0f square unit doorway)",
+        toDb(res.extra), res.db_per_1000, res.area))
+    line("AIM", string.format("%.1f dB   facing %+.2f (%s)", toDb(res.directivity), res.facing,
+        res.facing > 0.3 and "in front of it" or (res.facing < -0.3 and "round the back" or "edge on")))
+    line("SETTING", string.format("%.1f dB   the addon's own volume for this boundary, at %.0f%%",
+        toDb(res.volume), res.volume * 100))
+    line("DOORWAY", string.format("%.1f dB in total", toDb(res.gain)))
     return table.concat(out, "\n")
 end
 
