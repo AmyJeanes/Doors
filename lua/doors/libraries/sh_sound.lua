@@ -33,6 +33,8 @@
 ---@field loop boolean? repeat until stopped, from the loop point the file's author baked in. Implies resumable: a loop is by definition long enough to be caught by the listener jumping
 ---@field owner Entity? owner, for group-stop via Doors:StopSounds (a resumable sound also stops when its owner is removed)
 ---@field tag string? group label for Doors:StopSounds, e.g. "teleport"
+---@field pair string? marks this as one side of a sound authored twice, once per side of a boundary - the interior's own version of a sound the exterior also has. Only the side the listener is on is audible, and crossing fades between them. Scoped to `owner`, so two doors playing the same pair key never fuse. Deliberately not `tag`: that stops sounds at a coarser granularity than this blends them
+---@field through_doors number? how much of this sound carries across the boundary anyway, 0-1, overriding what `pair` would otherwise do. Set it where the two sides are genuinely different sounds rather than one sound heard twice, so both should be audible together
 ---@field pin_on_jump number? resumable only, with ent: the sound pins where the entity vanished from once it moves faster than this (units/second) - a teleporting emitter leaves its tail behind, e.g. the demat echo a bystander hears. A speed, not a distance: interpolation renders a client-side teleport as a short impossibly-fast slide, never a single-frame jump
 ---@field attach Entity? resumable only, with pos: entity that takes over as the source once it arrives within attach_dist of pos (e.g. the exterior landing on its materialise point)
 ---@field attach_dist number? resumable only: arrival distance for attach, default 500
@@ -235,6 +237,8 @@ end
 ---@field patch CSoundPatch? set instead of chan under doors_sound_engine, where the engine plays it
 ---@field owner Entity?
 ---@field tag string?
+---@field pair string? counterpart key, scoped to owner
+---@field through_doors number? author's override on the counterpart rule
 ---@field base number caller's max volume (the EmitSound volume equivalent)
 ---@field volume number current applied volume
 ---@field ent Entity? source entity for distance falloff (offset applied in its local space)
@@ -549,13 +553,78 @@ end
 ---@field facing number -1 directly behind the doorway, 1 head on
 ---@field directivity number
 ---@field healing number 0-1 of a captured space change still to fade
+---@field space gmod_door_interior? the space the sound itself is in, nil in the open world
+---@field counterpart number gain from the counterpart rule, 1 when this sound has no counterpart
 
 -- built through a typed return rather than annotated as a literal, which would be checked against every
 -- field of the class before a single resolve has filled them in
 ---@return doors_sound_resolution
 local function newResolution()
     return { dist = 0, gain = 1, applied = 1, inside = false, d1 = 0, d2 = 0, area = 0, openness = 1,
-        volume = 1, aperture = 1, db_per_1000 = 0, extra = 1, facing = 1, directivity = 1, healing = 0 }
+        volume = 1, aperture = 1, db_per_1000 = 0, extra = 1, facing = 1, directivity = 1, healing = 0,
+        counterpart = 1 }
+end
+
+---@class doors_sound_pair_index
+---@field frame number
+---@field groups table<string, doors_managed_sound[]>
+
+local pairIndex = { frame = -1, groups = {} } ---@type doors_sound_pair_index
+
+-- The counterpart rule. An interior sound and its exterior equivalent are one object's sound authored
+-- twice, for two vantage points, so hearing both is hearing it twice - only the one on the listener's
+-- side is audible, and crossing fades between them.
+--
+-- Returns a plain gain rather than doing the fading itself, so it multiplies into the same term the
+-- doorway does and rides the transition that is already there. A pair only ever changes which member
+-- leads when the listener changes space, which is exactly what that transition covers - including its
+-- distinction between a move and a view cut.
+--
+-- Reads only its siblings' `space`, never their resolution, so nothing here can re-enter resolve().
+---@param handle doors_managed_sound
+---@param space gmod_door_interior?
+---@param listenerSpace gmod_door_interior?
+---@return number
+local function counterpartGain(handle, space, listenerSpace)
+    local key = handle.pair
+    if key == nil or not IsValid(handle.owner) then return 1 end
+
+    if pairIndex.frame ~= FrameNumber() then
+        pairIndex.frame = FrameNumber()
+        local groups = {}
+        for _, h in ipairs(Doors.ActiveManagedSounds) do
+            if h.pair ~= nil and IsValid(h.owner) and not h.stopped then
+                local id = tostring(h.owner:EntIndex()) .. "\0" .. h.pair
+                local g = groups[id]
+                if g then g[#g + 1] = h else groups[id] = { h } end
+            end
+        end
+        pairIndex.groups = groups
+    end
+
+    local group = pairIndex.groups[tostring(handle.owner:EntIndex()) .. "\0" .. key]
+    if group == nil or #group < 2 then return 1 end -- nothing to double against
+
+    if space == listenerSpace then return 1 end
+
+    -- Not on the listener's side. Stay audible anyway if no sibling is either, or a listener standing in
+    -- some third space would hear nothing at all: the one out in the open world is the one that can
+    -- still reach them.
+    local anyNear = false
+    ---@type doors_managed_sound?
+    local worldSide = nil
+    for _, h in ipairs(group) do
+        local hs = h.res.space
+        if hs == listenerSpace then
+            anyNear = true
+            break
+        end
+        if hs == nil and worldSide == nil then worldSide = h end
+    end
+    if not anyNear and (worldSide == nil or worldSide == handle) then return 1 end
+
+    -- Suppressed, unless the author declared this sound carries through the doorway anyway.
+    return handle.through_doors or 0
 end
 
 -- Where this sound is heard from this frame and what the boundary between does to it. Computed once per
@@ -583,6 +652,7 @@ local function resolve(handle)
 
     local listenerSpace = getListenerSpace()
     local space = spaceOf(handle.ent, pos)
+    res.space = space
 
     -- The boundary is the sound's own interior whenever it has one, because a sound always radiates out
     -- through the doorway of the space it is in; only a sound already in the open world is resolved
@@ -635,7 +705,8 @@ local function resolve(handle)
     -- listener steps out, the in-space one is measuring the emitter across the void and the blend fades
     -- in from silence. So hold the level the sound was already at and glide from there to wherever it
     -- now belongs, which leaves ordinary distance changes completely alone.
-    local gain = res.gain
+    res.counterpart = counterpartGain(handle, space, listenerSpace)
+    local gain = res.gain * res.counterpart
     if handle.level then gain = gain * sndLevelGain(res.dist, handle.level) end
     -- Floored a long way below anything audible, because the glide below interpolates in dB and a
     -- silent target is not silent enough to be harmless there. A doorway's falloff measured over a
@@ -1039,6 +1110,8 @@ local function playManaged(opts)
     local handle = setmetatable({
         path = opts.path,
         owner = opts.owner,
+        pair = opts.pair,
+        through_doors = opts.through_doors and math.Clamp(opts.through_doors, 0, 1) or nil,
         tag = opts.tag,
         base = callerVolume(opts.volume),
         volume = callerVolume(opts.volume),
