@@ -276,10 +276,14 @@ local function drop(handle)
     table.RemoveByValue(Doors.ActiveManagedSounds, handle)
 end
 
--- Source stores a channel's volume as a byte and clamps it at full scale, so anything a caller passes
--- above 1 is silently ignored - and content in the wild leans on that without knowing, carrying volumes
--- of 10 or 50 that the engine has always quietly capped. A BASS channel amplifies instead, where a 10
--- would play 20 dB too loud, so the cap has to be reproduced rather than assumed.
+-- CSoundPatch::ChangeVolume caps its target at 1 before anything else happens to it, and PlayEx routes
+-- through the same call - so a caller asking for more has always been silently given 1. Content in the
+-- wild leans on that without knowing, carrying volumes of 10 or even 50 that have never once been heard
+-- as written. A BASS channel amplifies instead, where a 10 plays 20 dB too loud, so the cap has to be
+-- reproduced rather than assumed.
+--
+-- It is a cap on the caller's own volume, not on the result after distance: at range the two differ by
+-- everything, since capping the result instead would make an over-1 volume carry ten times as far.
 ---@param volume number?
 ---@return number
 local function callerVolume(volume)
