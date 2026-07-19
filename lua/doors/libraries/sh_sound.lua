@@ -427,6 +427,38 @@ local function spaceOf(ent, pos)
     return nil
 end
 
+---@class doors_listener_state
+---@field frame number
+---@field space gmod_door_interior?
+
+local listenerState = { frame = -1 } ---@type doors_listener_state
+
+-- Which space the listener is in - the camera, not the body. Every other term is measured from EyePos(),
+-- and a view mode can put the two in different spaces: a consumer's outside view can anchor the camera to
+-- the exterior while the player still stands in the interior, which would otherwise measure distance from
+-- one place while classifying the listener in another. Source's own listener follows the view too.
+--
+-- Resolved once per frame for the whole mix rather than per handle, since every sound shares it.
+---@return gmod_door_interior?
+local function getListenerSpace()
+    if listenerState.frame == FrameNumber() then return listenerState.space end
+    listenerState.frame = FrameNumber()
+
+    local ply = LocalPlayer()
+    local body = IsValid(ply) and ply.doori or nil
+    if body ~= nil and not IsValid(body) then body = nil end
+
+    -- The body's own space answers without a scan whenever the camera has not left it, which is every
+    -- frame of ordinary play; the containment scan only runs once a view mode moves them apart.
+    local eye = EyePos()
+    if body and body:PositionInside(eye) then
+        listenerState.space = body
+    else
+        listenerState.space = spaceOf(nil, eye)
+    end
+    return listenerState.space
+end
+
 ---@class doors_openness_state
 ---@field frame number
 ---@field value number
@@ -531,9 +563,7 @@ local function resolve(handle)
         return res
     end
 
-    local ply = LocalPlayer()
-    local listenerSpace = IsValid(ply) and ply.doori or nil
-    if listenerSpace ~= nil and not IsValid(listenerSpace) then listenerSpace = nil end
+    local listenerSpace = getListenerSpace()
     local space = spaceOf(handle.ent, pos)
 
     -- The boundary is the sound's own interior whenever it has one, because a sound always radiates out
