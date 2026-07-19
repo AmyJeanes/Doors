@@ -813,7 +813,12 @@ local SOURCE_MIXER_GAIN = 0.72
 ---@param res doors_sound_resolution
 ---@return number
 local function targetVolume(handle, res)
-    local gain = res.gain * res.heal
+    -- Held to an attenuation: the doorway and the glide can only ever take away, so together they must
+    -- not come out above 1. The ceiling that means anything is the sound's own level, which is what this
+    -- gives - capping the finished channel volume at full scale instead would still let a sound
+    -- configured at 0.2 land five times over its own loudest. The engine's distance gain is deliberately
+    -- outside the cap: snd_gain_max is allowed to exceed 1, and matching the engine means following it.
+    local gain = math.min(res.gain * res.heal, 1)
     if res.pos then
         if handle.level then
             gain = gain * sndLevelGain(res.dist, handle.level)
@@ -852,11 +857,6 @@ local function applyGain(handle)
     else
         handle.volume = scalar
     end
-
-    -- Every term feeding this is an attenuation, so it is a gain and never an amplification. Held to
-    -- that at the one place it is decided, because BASS will happily take more than full scale and clip
-    -- into noise rather than refuse - the engine caps its own volume input for exactly the same reason.
-    handle.volume = math.min(handle.volume, 1)
 
     local x = handle.xfade
     local main, intro = handle.chan, handle.intro
