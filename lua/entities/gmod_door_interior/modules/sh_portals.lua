@@ -19,12 +19,41 @@
 ---@field entry doors_portal_side
 ---@field exit doors_portal_side
 
+-- Just the geometry of a doorway - where it is, which way it faces, how big the opening is. Enough
+-- to reason about the boundary; the rest of a portal descriptor is only needed where portals are built.
+---@param p doors_portal_side?
+local function writeDoorway(p)
+    net.WriteBool(p ~= nil)
+    if not p then return end
+    net.WriteVector(p.pos)
+    net.WriteAngle(p.ang)
+    net.WriteFloat(p.width)
+    net.WriteFloat(p.height)
+end
+
+---@return doors_portal_side?
+local function readDoorway()
+    if not net.ReadBool() then return nil end
+    return {
+        pos = net.ReadVector(),
+        ang = net.ReadAngle(),
+        width = net.ReadFloat(),
+        height = net.ReadFloat(),
+    }
+end
+
 if SERVER then
 
     ENT:AddHook("PlayerInitialize", "portals", function(self)
         if self.portals then
             net.WriteEntity(self.portals.exterior)
             net.WriteEntity(self.portals.interior)
+            -- The doorway descriptors themselves, not just the portals built from them. Consumers set
+            -- `Portal` server-side, because that is where we need it to build those portals - so
+            -- without this the client has no idea where either doorway is, and everything reasoning
+            -- about the boundary there would have to ask each consumer separately.
+            writeDoorway(self.Portal)
+            writeDoorway(self.exterior.Portal)
             if self.customportals then
                 net.WriteBool(true)
                 net.WriteInt(table.Count(self.customportals),8)
@@ -304,6 +333,11 @@ else
         self.portals={}
         local exterior=net.ReadEntity()
         local interior=net.ReadEntity()
+        -- kept apart from `Portal` rather than assigned over it: this carries only what a doorway is
+        -- geometrically, and the server-side field may hold more (thickness, models, exit offsets)
+        self.doorway = readDoorway()
+        local extDoorway = readDoorway()
+        if IsValid(self.exterior) then self.exterior.doorway = extDoorway end
         if IsValid(exterior) and IsValid(interior) then
             self.portals.exterior=exterior
             self.portals.exterior.exterior=self.exterior

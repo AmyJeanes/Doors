@@ -2,6 +2,7 @@
 ---@field Model string
 ---@field exterior gmod_door_exterior
 ---@field Portal doors_portal_side?
+---@field doorway doors_portal_side? geometry-only copy, networked to the client at player init
 ---@field CustomPortals table<string, doors_custom_portal>?
 ---@field FalseWorldWindows table<string, doors_portal_side>?
 ---@field initqueue table
