@@ -1218,7 +1218,7 @@ local function playManaged(opts)
     -- Stereo, like Source: a positioned stereo sound keeps its channels, each scaled by that side's
     -- spatialisation weight (not summed to mono). noblock fully loads so there's no block-stream hitch.
     -- noplay keeps a channel at its first sample until it is wanted - PlayFile starts it otherwise.
-    sound.PlayFile("sound/" .. opts.path, "noblock", function(chan)
+    sound.PlayFile("sound/" .. opts.path, "noblock noplay", function(chan)
         if handle.stopped then
             -- stopped before the load finished (e.g. an interrupt raced the load)
             if IsValid(chan) then chan:Stop() end
