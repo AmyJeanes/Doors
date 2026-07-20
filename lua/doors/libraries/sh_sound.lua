@@ -259,6 +259,10 @@ end
 ---@field loop boolean? repeats until stopped
 ---@field loop_start number seconds into the file its loop begins, 0 for a plain whole-file loop
 ---@field body IGModAudioChannel? the trimmed loop body, waiting for the intro to hand over to it
+---@field clock number logical playback position in seconds, advanced by frame time whether or not a channel exists; drives one-shot resume and done detection while parked
+---@field duration number? one-shot length in seconds, learned from the channel and cached per path; nil until known
+---@field parked boolean? true while virtualised - the handle is kept but its BASS channel freed until the sound is audible again
+---@field below_since number? RealTime the applied gain first dropped below the park floor, for the park delay
 ---@field fade_to number? volume being faded toward
 ---@field fade_left number? seconds of fade remaining
 ---@field stop_when_faded boolean? stop the sound once the running fade finishes
@@ -877,6 +881,7 @@ local HANDOVER = 0.15
 ---@field omni boolean stereo .wav, which Source plays omnidirectional
 ---@field loop_start number seconds into the file that its baked-in loop marker starts at, 0 if none
 ---@field mtime number the source's modified time when parsed, so a live edit re-reads
+---@field duration number? one-shot length in seconds from the channel, cached so a born-parked sound knows when it ends
 
 local wavCache = {} ---@type table<string, doors_wav_header>
 ---@param path string sound path relative to sound/
@@ -1101,6 +1106,8 @@ end
 ---@return boolean
 function MANAGED:IsAlive()
     if self.stopped then return false end
+    -- virtualised: the channel is freed but the handle is deliberately kept, so the owner must not remake it
+    if self.parked then return true end
     if self.loading then return true end
     if self:IsValid() then return true end
     return self.retry_after ~= nil and RealTime() < self.retry_after
@@ -1134,6 +1141,8 @@ end
 ---@param time number seconds
 function MANAGED:FadeOut(time)
     if not (time and time > 0) then return self:Stop() end
+    -- a parked sound is silent and its fade would never step (parkThink runs no fade), so nothing to fade out
+    if self.parked then return self:Stop() end
     self.fade_to = 0
     self.fade_left = time
     self.stop_when_faded = true
@@ -1193,6 +1202,58 @@ local SINGLEPLAYER = game.SinglePlayer()
 local sp_paused = false
 local last_think_frame = 0
 
+-- Virtualisation floors. A managed channel whose applied gain sits below the park floor for PARK_DELAY
+-- seconds has its BASS channel freed while the handle is kept (the owner never learns), and is reloaded
+-- once the gain climbs back above the unpark floor. Both are far below hearing, and unpark sits a little
+-- above park so the async reload lands before the sound is audible again and the two cannot flap.
+--
+-- res.applied is a linear gain, so the dB floors are converted to it once here. The park floor sits above
+-- Source's own distance-gain floor (0.001, which the engine clamps to at extreme range), so a plain
+-- open-world sound parks too rather than resting forever right on that clamp; a boundary-crossing sound
+-- reaches far below it. Tuned by ear: a hum heard faintly just outside the door lands around 0.007.
+local PARK_GAIN = 10 ^ (-54 / 20)
+local UNPARK_GAIN = 10 ^ (-50 / 20)
+local PARK_DELAY = 3
+
+-- Start a freshly loaded channel: apply this frame's gain before it is heard (noplay kept it silent),
+-- optionally seek a resuming one-shot to where its logical clock has reached, then play - parked straight
+-- away if the load landed mid-pause so it doesn't play into it.
+---@param handle doors_managed_sound
+---@param chan IGModAudioChannel
+---@param loop boolean whether this channel loops (false for an intro-only channel or a one-shot)
+---@param seekTo number? seconds to resume from, for a one-shot returning from park
+local function startChannel(handle, chan, loop, seekTo)
+    handle.chan = chan
+    if loop then chan:EnableLooping(true) end
+    if handle.rate ~= 1 then chan:SetPlaybackRate(handle.rate) end
+    if seekTo and seekTo > 0 then chan:SetTime(seekTo) end
+    applyGain(handle)
+    chan:Play()
+    if sp_paused then
+        chan:Pause()
+        handle.sp_paused = true
+    end
+end
+
+-- A load that failed - a genuinely missing file, not a channel stopped from outside. Warn once per path
+-- and rate-limit the owner's retries (see RETRY_COOLDOWN), then drop the handle.
+---@param handle doors_managed_sound
+---@param path string
+---@param errId number?
+---@param errName string?
+local function onLoadFail(handle, path, errId, errName)
+    if not warnedPaths[path] then
+        warnedPaths[path] = true
+        -- Non-halting: this is an async callback detached from whoever asked for the sound, so a raised
+        -- error would break an unrelated Think, and a stack trace would point here, not at the content
+        -- that named the missing file.
+        ErrorNoHalt(string.format("[Doors] sound '%s' failed to load (%s)\n",
+            path, errName or errId or "unknown error"))
+    end
+    handle.retry_after = RealTime() + RETRY_COOLDOWN
+    drop(handle)
+end
+
 ---@param opts doors_sound_opts
 ---@return doors_managed_sound
 local function playManaged(opts)
@@ -1216,6 +1277,8 @@ local function playManaged(opts)
         omni = header.omni,
         loop = opts.loop,
         loop_start = header.loop_start,
+        duration = header.duration,
+        clock = 0,
         rate = 1,
         stopped = false,
         loading = true,
@@ -1237,26 +1300,22 @@ local function playManaged(opts)
         return handle
     end
 
+    -- Born parked: a sound that starts already below the cull floor never loads a channel at all - it
+    -- stays a live handle costing only the per-frame gain math until the listener nears. A loop can
+    -- always be reborn on approach; a one-shot must still finish on its own while parked, so one whose
+    -- length is not yet known loads once (which learns it) rather than born parked with no way to end.
+    resolve(handle)
+    if handle.res.applied < PARK_GAIN and (handle.loop or handle.duration) then
+        handle.parked = true
+        handle.loading = false
+        return handle
+    end
+
     -- A loop whose file opens with an intro plays that intro from the original and hands over to a
     -- trimmed copy that BASS can loop whole-file. Both are loaded before either is heard, so the body
     -- is ready to start on the exact frame the handover begins.
     local bodyPath = handle.loop and handle.loop_start > 0
         and loopBodyFile(opts.path, handle.loop_start) or nil
-
-    ---@param chan IGModAudioChannel
-    ---@param canLoop boolean false while this channel is only playing an intro in
-    local function start(chan, canLoop)
-        handle.chan = chan
-        if handle.loop and canLoop then chan:EnableLooping(true) end
-        if handle.rate ~= 1 then chan:SetPlaybackRate(handle.rate) end
-        applyGain(handle)
-        chan:Play()
-        -- the async load can complete mid-pause; start parked so it doesn't play into the pause
-        if sp_paused then
-            chan:Pause()
-            handle.sp_paused = true
-        end
-    end
 
     -- Stereo, like Source: a positioned stereo sound keeps its channels, each scaled by that side's
     -- spatialisation weight (not summed to mono). noblock fully loads so there's no block-stream hitch.
@@ -1267,20 +1326,16 @@ local function playManaged(opts)
             -- stopped before the load finished (e.g. an interrupt raced the load)
             if IsValid(chan) then chan:Stop() end
         elseif IsValid(chan) then
-            -- with a body to hand over to, this channel is only playing the intro, so it must not loop
-            start(chan, bodyPath == nil)
-        else
-            if not warnedPaths[opts.path] then
-                warnedPaths[opts.path] = true
-                -- Non-halting: this is an async callback detached from whoever asked for the sound, so a
-                -- raised error would break an unrelated Think, and a stack trace would point here, not at
-                -- the content that named the missing file.
-                ErrorNoHalt(string.format("[Doors] sound '%s' failed to load (%s)\n",
-                    opts.path, errName or errId or "unknown error"))
+            -- learn the length once per path from the channel itself - BASS is the oracle, no header
+            -- parse - so a later born-parked one-shot of this path knows when it ends without loading
+            if not handle.loop and handle.duration == nil then
+                local len = chan:GetLength()
+                if len and len > 0 then handle.duration, header.duration = len, len end
             end
-            -- the load itself failed, so rate-limit the owner's retries (see RETRY_COOLDOWN)
-            handle.retry_after = RealTime() + RETRY_COOLDOWN
-            drop(handle)
+            -- with a body to hand over to, this channel is only playing the intro, so it must not loop
+            startChannel(handle, chan, handle.loop and bodyPath == nil)
+        else
+            onLoadFail(handle, opts.path, errId, errName)
         end
     end)
 
@@ -1426,6 +1481,83 @@ local function stepHandover(handle)
     end
 end
 
+-- Free the BASS channel but keep the handle. chan:Stop() destroys the channel outright and frees the
+-- file lock, which is exactly wanted here: the owner keeps polling IsAlive and never remakes it, and
+-- resolve() keeps running from the Think loop so the handle still knows when to come back.
+---@param handle doors_managed_sound
+local function park(handle)
+    if IsValid(handle.chan) then handle.chan:Stop() end
+    if IsValid(handle.intro) then handle.intro:Stop() end
+    if IsValid(handle.body) then handle.body:Stop() end
+    handle.chan, handle.intro, handle.body, handle.xfade = nil, nil, nil, nil
+    handle.below_since = nil
+    handle.parked = true
+end
+
+-- Reload a parked handle's channel. A one-shot resumes from its logical clock - a demat flown to at the
+-- six-second mark renders from six seconds - while a loop resumes fresh straight into its looping body,
+-- with no intro replay and no phase to align (decision 5). Frame-level accuracy is plenty: the reload
+-- happens while the sound is still below hearing, so a few milliseconds either way is inaudible.
+---@param handle doors_managed_sound
+local function unpark(handle)
+    handle.parked = nil
+    handle.loading = true
+    if not handle.loop then
+        sound.PlayFile("sound/" .. handle.path, "noblock noplay", function(chan, errId, errName)
+            handle.loading = false
+            if handle.stopped then
+                if IsValid(chan) then chan:Stop() end
+            elseif IsValid(chan) then
+                startChannel(handle, chan, false, handle.clock)
+            else
+                onLoadFail(handle, handle.path, errId, errName)
+            end
+        end)
+        return
+    end
+    local body = handle.loop_start > 0 and loopBodyFile(handle.path, handle.loop_start) or nil
+    local loadPath = body and ("data/" .. body) or ("sound/" .. handle.path)
+    sound.PlayFile(loadPath, "noblock noplay", function(chan, errId, errName)
+        handle.loading = false
+        if handle.stopped then
+            if IsValid(chan) then chan:Stop() end
+        elseif IsValid(chan) then
+            startChannel(handle, chan, true)
+        else
+            onLoadFail(handle, handle.path, errId, errName)
+        end
+    end)
+end
+
+-- A parked handle each frame: keep resolving so it knows when to wake, and end a one-shot that ran out
+-- while parked - done by its clock, not a channel state it no longer has - so it cleans up and never wakes.
+---@param handle doors_managed_sound
+local function parkThink(handle)
+    local res = resolve(handle)
+    if not handle.loop and handle.duration and handle.clock >= handle.duration then
+        handle:Stop()
+        return
+    end
+    if res.applied >= UNPARK_GAIN then unpark(handle) end
+end
+
+-- A live handle each frame, after its gain is applied: park it once the gain has sat below the floor for
+-- the delay. A fade or an intro handover in flight is left to finish first, both being transient states a
+-- freed channel could not resume cleanly.
+---@param handle doors_managed_sound
+local function parkCheck(handle)
+    if handle.fade_left or handle.xfade ~= nil then
+        handle.below_since = nil
+        return
+    end
+    if handle.res.applied < PARK_GAIN then
+        handle.below_since = handle.below_since or RealTime()
+        if RealTime() - handle.below_since >= PARK_DELAY then park(handle) end
+    else
+        handle.below_since = nil
+    end
+end
+
 hook.Add("Think", "doors_managed_sounds", function()
     last_think_frame = FrameNumber()
     local list = Doors.ActiveManagedSounds
@@ -1441,16 +1573,22 @@ hook.Add("Think", "doors_managed_sounds", function()
             if not handle.stopped then handle.patch:ChangeVolume(handle.base, 0) end
         else
             stepHandover(handle)
+            -- The logical clock advances on game time - frozen during a pause, since Think does not run
+            -- then - for parked and live handles alike, so a resumed one-shot picks up where it left off.
+            handle.clock = handle.clock + FrameTime() * handle.rate
             local chan = handle.chan
-            if chan ~= nil then
-                if not IsValid(chan) or chan:GetState() == GMOD_CHANNEL_STOPPED then
-                    drop(handle)
-                else
-                    stepFade(handle)
-                    if not handle.stopped then -- a fade can end in a stop, which drops the handle
-                        stepRate(handle, chan)
-                        applyGain(handle)
-                    end
+            if chan == nil then
+                -- parked: no channel, but keep watching for the wake or the one-shot running out. A
+                -- handle still loading is also channel-less; it is left alone until its load resolves.
+                if handle.parked then parkThink(handle) end
+            elseif not IsValid(chan) or chan:GetState() == GMOD_CHANNEL_STOPPED then
+                drop(handle)
+            else
+                stepFade(handle)
+                if not handle.stopped then -- a fade can end in a stop, which drops the handle
+                    stepRate(handle, chan)
+                    applyGain(handle)
+                    parkCheck(handle)
                 end
             end
         end
