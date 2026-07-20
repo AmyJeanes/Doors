@@ -454,6 +454,7 @@ end
 ---@field space gmod_door_interior? the space the camera is in
 ---@field body gmod_door_interior? the space its owner's body is in
 ---@field body_changed number RealTime the body last changed space
+---@field eye Vector? the camera position `space` was resolved from
 
 -- How recently the body must have moved for a listener space change to count as travel rather than a
 -- view change. A window rather than the same frame: the body's space and the camera's position do not
@@ -471,16 +472,26 @@ local listenerState = { frame = -1, body_changed = -math.huge } ---@type doors_l
 -- Resolved once per frame for the whole mix rather than per handle, since every sound shares it.
 ---@return gmod_door_interior?
 local function getListenerSpace()
-    if listenerState.frame == FrameNumber() then return listenerState.space end
-    listenerState.frame = FrameNumber()
-
     local ply = LocalPlayer()
     local body = IsValid(ply) and ply.doori or nil
     if body ~= nil and not IsValid(body) then body = nil end
+    local eye = EyePos()
+
+    -- Cached for the frame, but only while the camera and body it was measured from still hold. Both
+    -- can move part-way through a frame - crossing a doorway teleports the camera between two of these
+    -- calls, so the sounds resolved after it asked about a camera the cached answer predates. Keying on
+    -- the frame alone then reported listener and sound as sharing a space when they no longer did, which
+    -- drops the doorway out of the path and measures the sound straight to its own room, thousands of
+    -- units off in the map. One frame of that is silence, and the glide that follows starts from it.
+    if listenerState.frame == FrameNumber() and listenerState.body == body
+        and listenerState.eye == eye then
+        return listenerState.space
+    end
+    listenerState.frame = FrameNumber()
+    listenerState.eye = eye
 
     -- The body's own space answers without a scan whenever the camera has not left it, which is every
     -- frame of ordinary play; the containment scan only runs once a view mode moves them apart.
-    local eye = EyePos()
     local space
     if body and body:PositionInside(eye) then
         space = body
