@@ -186,15 +186,15 @@ end
 -- zero - and no amount of seeking from Lua fixes that, because the position we can observe isn't the
 -- one being heard. So hand BASS a file that *is* the loop: copy the samples from the marker onwards
 -- into data/ once, and loop that whole-file, with nothing per-frame involved. PCM wav only, which is
--- all that carries a marker anyway. The cache key includes the source size so an updated asset
--- rebuilds instead of playing a stale body forever.
+-- all that carries a marker anyway. The cache key is the source content, so any edit rebuilds it -
+-- even one that leaves the file the same size - instead of playing a stale body forever.
 ---@param path string
 ---@param from number seconds to trim off the front
 ---@return string? dataPath relative to data/, nil if the file can't be trimmed
 local function loopBodyFile(path, from)
     local src = file.Read("sound/" .. path, "GAME")
     if not src then return nil end
-    local key = "doors_loopcache/" .. util.CRC(path .. "_" .. #src) .. ".wav"
+    local key = "doors_loopcache/" .. util.CRC(path .. "_" .. src) .. ".wav"
     if file.Exists(key, "DATA") then return key end
 
     ---@param o number
@@ -876,15 +876,21 @@ local HANDOVER = 0.15
 ---@class doors_wav_header
 ---@field omni boolean stereo .wav, which Source plays omnidirectional
 ---@field loop_start number seconds into the file that its baked-in loop marker starts at, 0 if none
+---@field mtime number the source's modified time when parsed, so a live edit re-reads
 
 local wavCache = {} ---@type table<string, doors_wav_header>
 ---@param path string sound path relative to sound/
 ---@return doors_wav_header
 local function wavHeader(path)
+    local isWav = string.EndsWith(path:lower(), ".wav")
+    -- Keyed on the modified time so a live-edited .wav reparses its channel count and loop marker. An
+    -- OGG caches a constant (nothing to go stale) and packed files report 0 (never changes), so both
+    -- stay cached exactly as before.
+    local mtime = isWav and file.Time("sound/" .. path, "GAME") or 0
     local cached = wavCache[path]
-    if cached then return cached end
-    local info = { omni = false, loop_start = 0 }
-    if string.EndsWith(path:lower(), ".wav") then
+    if cached and cached.mtime == mtime then return cached end
+    local info = { omni = false, loop_start = 0, mtime = mtime }
+    if isWav then
         local data = file.Read("sound/" .. path, "GAME")
         if data == nil then
             -- unreadable .wav (e.g. a mount file.Read can't reach): assume stereo, since almost every
