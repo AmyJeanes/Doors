@@ -372,9 +372,11 @@ local SIZE_NEUTRAL = 16384
 local TRANSITION_FLOOR = 0.5
 
 -- Used instead when the listener changed space by changing view rather than by moving. A cut has no
--- travel for a glide to cover, so gliding only makes the sound lag a picture that already changed. Short
--- rather than instant, because a gain step inside a single frame clicks.
-local VIEW_TRANSITION = 0.04
+-- travel for a glide to cover, so gliding only makes the sound lag a picture that already changed - but
+-- it cannot be arbitrarily short either, because a counterpart pair swaps over this same span, and a few
+-- frames is close enough to a hard switch to step rather than fade. Fast enough to still read as part of
+-- the cut, slow enough to be a fade.
+local VIEW_TRANSITION = 0.15
 
 -- Tuning override for the move transition, so it can be heard at different lengths without a reboot.
 -- 0 uses TRANSITION_FLOOR.
