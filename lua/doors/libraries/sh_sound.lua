@@ -278,10 +278,13 @@ MANAGED.__index = MANAGED
 
 Doors.ActiveManagedSounds = Doors.ActiveManagedSounds or {} ---@type doors_managed_sound[]
 
--- How long a dropped handle still reads as alive before an owner is allowed to remake it. A file that
+-- How long a failed load still reads as alive before an owner is allowed to remake it. A file that
 -- fails to load is retried, since the failure may be a mount that has not finished - but an owner polls
 -- every frame, so without this a genuinely missing file would be reloaded hundreds of times a second
 -- forever. Long enough that the retry is cheap, short enough that a transient failure recovers quickly.
+-- Applied only to a load failure, not to a channel that was playing and got stopped (snd_restart,
+-- stopsound, an engine hiccup): a loop never ends on its own, so a stopped one is always an external
+-- interruption that recreates cleanly, and should come straight back rather than wait this out.
 local RETRY_COOLDOWN = 5
 
 -- A failed load is warned once per path, not once per attempt: the retry above means the same missing
@@ -292,7 +295,6 @@ local warnedPaths = {}
 ---@param handle doors_managed_sound
 local function drop(handle)
     handle.chan = nil
-    handle.retry_after = RealTime() + RETRY_COOLDOWN
     table.RemoveByValue(Doors.ActiveManagedSounds, handle)
 end
 
@@ -1088,7 +1090,8 @@ end
 -- for the frame or two a channel takes to arrive there is nothing playing yet, and an owner reading that
 -- as death would start a second copy every frame until the first one landed.
 --
--- Also true briefly after a drop, so the owner does not remake it the very next frame - see drop().
+-- Also true briefly after a failed load, so the owner does not hammer a missing file - see RETRY_COOLDOWN.
+-- A channel that was playing and got stopped sets no cooldown, so it comes back at once.
 ---@return boolean
 function MANAGED:IsAlive()
     if self.stopped then return false end
@@ -1269,6 +1272,8 @@ local function playManaged(opts)
                 ErrorNoHalt(string.format("[Doors] sound '%s' failed to load (%s)\n",
                     opts.path, errName or errId or "unknown error"))
             end
+            -- the load itself failed, so rate-limit the owner's retries (see RETRY_COOLDOWN)
+            handle.retry_after = RealTime() + RETRY_COOLDOWN
             drop(handle)
         end
     end)
