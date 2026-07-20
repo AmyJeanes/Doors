@@ -375,6 +375,17 @@ local TRANSITION_FLOOR = 0.5
 -- rather than instant, because a gain step inside a single frame clicks.
 local VIEW_TRANSITION = 0.04
 
+-- Tuning override for the move transition, so it can be heard at different lengths without a reboot.
+-- 0 uses TRANSITION_FLOOR.
+local transitionConVar = CreateClientConVar("doors_sound_transition", "0", false, false,
+    "Seconds a sound takes to settle after the listener moves between spaces, or 0 for the default")
+
+---@return number
+local function moveTransition()
+    local v = transitionConVar:GetFloat()
+    return v > 0 and v or TRANSITION_FLOOR
+end
+
 -- -100 dB: two and a half times below the engine's own gain floor, so nothing above it is reachable by
 -- ear, and it exists only to keep a meaninglessly small number out of the dB glide.
 local GAIN_FLOOR = 1e-5
@@ -440,10 +451,16 @@ end
 ---@class doors_listener_state
 ---@field frame number
 ---@field space gmod_door_interior? the space the camera is in
----@field detached boolean the camera is resolving somewhere its owner's body is not
----@field view_change boolean detachment changed this frame, so a space change is a view cut, not a move
+---@field body gmod_door_interior? the space its owner's body is in
+---@field body_changed number RealTime the body last changed space
 
-local listenerState = { frame = -1, detached = false, view_change = false } ---@type doors_listener_state
+-- How recently the body must have moved for a listener space change to count as travel rather than a
+-- view change. A window rather than the same frame: the body's space and the camera's position do not
+-- update together when crossing a portal, and a single frame of disagreement is enough to misread a walk
+-- as a cut - which is what it did, silently, until a recording caught the glide running at 40ms.
+local BODY_SETTLE = 0.25
+
+local listenerState = { frame = -1, body_changed = -math.huge } ---@type doors_listener_state
 
 -- Which space the listener is in - the camera, not the body. Every other term is measured from EyePos(),
 -- and a view mode can put the two in different spaces: a consumer's outside view can anchor the camera to
@@ -470,13 +487,13 @@ local function getListenerSpace()
         space = spaceOf(nil, eye)
     end
 
-    -- Whether a space change was a move or a view change, tracked as a change in whether the camera and
-    -- its body agree. Comparing the two directly does not work: they agree again the moment the view is
-    -- switched back, which would read that cut as a move. Nor does looking for a jump in position -
-    -- walking through a portal teleports the camera just as far as any cut does.
-    local detached = space ~= body
-    listenerState.view_change = detached ~= listenerState.detached
-    listenerState.detached = detached
+    -- Travel is what the body does, so its space changing is what marks a listener space change as a
+    -- move; a view change never moves it. Recorded as a time rather than tested against this frame,
+    -- because the two do not update on the same frame when crossing a portal.
+    if body ~= listenerState.body then
+        listenerState.body = body
+        listenerState.body_changed = RealTime()
+    end
     listenerState.space = space
     return space
 end
@@ -717,8 +734,9 @@ local function resolve(handle)
     if handle.last_space ~= space or handle.last_listener_space ~= listenerSpace then
         -- Only the listener changing space can be a view cut; a sound that changed space travelled,
         -- whatever the camera was doing.
-        local viewCut = handle.last_space == space and listenerState.view_change
-        handle.heal_span = viewCut and VIEW_TRANSITION or TRANSITION_FLOOR
+        local viewCut = handle.last_space == space
+            and (RealTime() - listenerState.body_changed) > BODY_SETTLE
+        handle.heal_span = viewCut and VIEW_TRANSITION or moveTransition()
         -- nil on the first resolve, where there is nothing to glide from
         handle.heal_from = handle.last_gain
         handle.heal_left = handle.heal_from and handle.heal_span or 0
