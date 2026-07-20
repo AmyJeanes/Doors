@@ -239,6 +239,7 @@ end
 ---@field tag string?
 ---@field pair string? counterpart key, scoped to owner
 ---@field through_doors number? author's override on the counterpart rule
+---@field cp_weight number? smoothed counterpart weight, 1 fully audible and 0 fully yielded; nil until first resolved
 ---@field base number caller's max volume (the EmitSound volume equivalent)
 ---@field volume number current applied volume
 ---@field ent Entity? source entity for distance falloff (offset applied in its local space)
@@ -722,8 +723,7 @@ local function resolve(handle)
     -- listener steps out, the in-space one is measuring the emitter across the void and the blend fades
     -- in from silence. So hold the level the sound was already at and glide from there to wherever it
     -- now belongs, which leaves ordinary distance changes completely alone.
-    res.counterpart = counterpartGain(handle, space, listenerSpace)
-    local gain = res.gain * res.counterpart
+    local gain = res.gain
     if handle.level then gain = gain * sndLevelGain(res.dist, handle.level) end
     -- Floored a long way below anything audible, because the glide below interpolates in dB and a
     -- silent target is not silent enough to be harmless there. A doorway's falloff measured over a
@@ -762,6 +762,25 @@ local function resolve(handle)
     local from = handle.heal_from
     res.applied = (healing > 0 and from) and gain ^ (1 - healing) * from ^ healing or gain
     handle.last_gain = res.applied
+
+    -- The counterpart weight is kept out of the glide above and smoothed on its own, linearly. That glide
+    -- interpolates in dB, which is right for a doorway or a distance - every target is a real attenuation
+    -- - but wrong for a mix, where the target is absence. In dB, absence is minus infinity, so a member
+    -- fading out is inaudible a quarter of the way through and the one fading in only arrives at the very
+    -- end: a hole rather than a crossfade, which is exactly what it sounded like.
+    --
+    -- Square-rooted so the pair holds constant power across the swap. Two loops that are not copies of
+    -- each other sum by power rather than amplitude, so weights that cross linearly would dip in the
+    -- middle - audible here, because sounding like one continuous thing is the entire point.
+    local weight = counterpartGain(handle, space, listenerSpace)
+    if handle.cp_weight == nil then
+        -- a sound starting on the far side starts yielded, rather than blipping on its first frame
+        handle.cp_weight = weight
+    else
+        handle.cp_weight = math.Approach(handle.cp_weight, weight, FrameTime() / handle.heal_span)
+    end
+    res.counterpart = math.sqrt(handle.cp_weight)
+    res.applied = res.applied * res.counterpart
     return res
 end
 
