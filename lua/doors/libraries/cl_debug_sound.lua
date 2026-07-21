@@ -31,6 +31,7 @@
 ---@field snd doors_managed_sound? the test sound, when one is playing
 ---@field focus doors_managed_sound? the sound the readouts describe
 ---@field held gmod_door_exterior? door currently being held open by hand
+---@field held_getopenness function? the held door's real GetDoorOpenness, put back exactly on release
 local RIG = {}
 
 -- Autorefresh re-runs this file, which would orphan the old panel inside the context menu and leave its
@@ -71,12 +72,13 @@ RIG.samples = {
 --------------------------------------------------------------------------------------------------
 
 -- The library reads openness through the consumer's own GetDoorOpenness, so hold the door by overriding
--- that on the one entity rather than adding a debug path to the library. Cleared back to nil, which
--- restores the class method the override was shadowing.
+-- that on the one entity rather than adding a debug path to the library. Put the real method back exactly
+-- on release: nilling the instance override does NOT fall through to the class method on a scripted entity
+-- that defines its own (gmod_tardis does), it sticks as nil and every later openness() read then errors.
 function RIG:ReleaseDoor()
     local ext = self.held
-    if IsValid(ext) then ext.GetDoorOpenness = nil end
-    self.held = nil
+    if IsValid(ext) then ext.GetDoorOpenness = self.held_getopenness end
+    self.held, self.held_getopenness = nil, nil
 end
 
 ---@param ext gmod_door_exterior?
@@ -85,6 +87,7 @@ function RIG:HoldDoor(ext)
     if self.held == ext then return end
     self:ReleaseDoor()
     self.held = ext
+    self.held_getopenness = ext.GetDoorOpenness
     function ext:GetDoorOpenness() return RIG.cfg.openness end
 end
 
