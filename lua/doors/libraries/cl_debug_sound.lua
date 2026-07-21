@@ -479,9 +479,12 @@ function RIG:Open(reveal)
                 Color(130, 135, 150), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
             return
         end
+        -- res.gain, not res.aperture: the whole doorway cost (aperture, size falloff, directivity and the
+        -- cross-boundary volume together), so this matches what the doorway actually takes off a sound at
+        -- your position rather than only the door-openness part, which reads 0 the moment the door is open.
         draw.SimpleText("the doorway costs", "DermaDefault", half + half / 2, 13,
             Color(150, 155, 170), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-        draw.SimpleText(string.format("%.1f dB", toDb(res.aperture)), "DermaLarge", half + half / 2, 34,
+        draw.SimpleText(string.format("%.1f dB", toDb(res.gain)), "DermaLarge", half + half / 2, 34,
             Color(110, 210, 130), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
         draw.SimpleText(string.format("door %.0f%% open", res.openness * 100), "DermaDefault",
             half + half / 2, 52, Color(130, 135, 150), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
@@ -543,13 +546,14 @@ function RIG:Open(reveal)
         if res.int then
             curve(res.d1, maxd, function(d) return Doors:DistanceGain(d, lvl) end, Color(70, 85, 120))
             curve(res.d1, maxd, function(d)
-                -- Directivity is an angle term the model pins to fully-facing at the mouth, so ramp it
-                -- from 1 there to the listener's value rather than drawing its full value as a step where
-                -- the sound meets the room. Volume is the consumer's own flat cross-boundary scalar and
-                -- part of the doorway gain, so including it lands the marker (res.applied) on this line.
+                -- Directivity (an angle term) and the cross-boundary volume (a falloff) both reach 1 at
+                -- the mouth in the model, so reproduce that: ramp directivity from 1 to the listener's
+                -- value, and raise volume by distance past the mouth. The curve then meets the in-room line
+                -- at an open door, while the marker (res.applied) still lands on it at your distance.
                 local t = res.d2 > 0 and math.Clamp((d - res.d1) / res.d2, 0, 1) or 1
                 local directivity = 1 + (res.directivity - 1) * t
-                return Doors:DistanceGain(d, lvl) * res.aperture * directivity * res.volume
+                local volExtra = res.volume > 0 and res.volume ^ ((d - res.d1) / 1000) or 0
+                return Doors:DistanceGain(d, lvl) * res.aperture * directivity * volExtra
                     * 10 ^ (-(res.db_per_1000 * (d - res.d1) / 1000) / 20)
             end, Color(110, 210, 130))
 
@@ -662,8 +666,8 @@ function RIG:Stats()
         toDb(res.extra), res.db_per_1000, res.area))
     line("AIM", string.format("%.1f dB   facing %+.2f (%s)", toDb(res.directivity), res.facing,
         res.facing > 0.3 and "in front of it" or (res.facing < -0.3 and "round the back" or "edge on")))
-    line("SETTING", string.format("%.1f dB   the addon's own volume for this boundary, at %.0f%%",
-        toDb(res.volume), res.volume * 100))
+    line("CROSS-VOL", string.format("%.1f dB here   %.0f%% carries 1000u past the mouth",
+        toDb(res.vol_extra), res.volume * 100))
     line("DOORWAY", string.format("%.1f dB in total", toDb(res.gain)))
     return table.concat(out, "\n")
 end

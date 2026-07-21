@@ -624,6 +624,7 @@ end
 ---@field aperture number flat gain from how open the door is
 ---@field db_per_1000 number how fast this doorway's size makes the sound fall off past the mouth
 ---@field extra number the extra falloff past the mouth, at this distance
+---@field vol_extra number the consumer's cross-boundary volume as a falloff, 1 at the mouth
 ---@field facing number -1 directly behind the doorway, 1 head on
 ---@field directivity number
 ---@field healing number 0-1 of a captured space change still to fade
@@ -635,8 +636,8 @@ end
 ---@return doors_sound_resolution
 local function newResolution()
     return { dist = 0, gain = 1, applied = 1, inside = false, d1 = 0, d2 = 0, area = 0, openness = 1,
-        volume = 1, aperture = 1, db_per_1000 = 0, extra = 1, facing = 1, directivity = 1, healing = 0,
-        counterpart = 1 }
+        volume = 1, aperture = 1, db_per_1000 = 0, extra = 1, vol_extra = 1, facing = 1, directivity = 1,
+        healing = 0, counterpart = 1 }
 end
 
 ---@class doors_sound_pair_index
@@ -717,7 +718,7 @@ local function resolve(handle)
     res.inside = false
     res.gain, res.d1, res.d2, res.area = 1, 0, 0, 0
     res.openness, res.volume, res.aperture, res.facing, res.directivity = 1, 1, 1, 1, 1
-    res.db_per_1000, res.extra = 0, 1
+    res.db_per_1000, res.extra, res.vol_extra = 0, 1, 1
     res.dist = pos and EyePos():Distance(pos) or 0
     if not pos then
         res.applied, res.healing = 1, 0
@@ -764,13 +765,19 @@ local function resolve(handle)
 
         res.int, res.inside = int, inside
         res.source, res.listener, res.normal = source, listener, normal
+
+        -- The consumer's cross-boundary volume is a falloff, not a flat gate: an open door is a hole in
+        -- the wall, so only the closed coefficient may reduce a sound at the mouth. This fades it as it
+        -- carries to the far side instead - 1 at the mouth, reaching `volume` of the geometry-only level a
+        -- reference 1000u out (volume^(d2/1000)), and continuing past that. 1 carries fully, 0 is off.
         local volume = math.Clamp(int.exterior:GetCrossBoundaryVolume(), 0, 1)
+        local volExtra = volume > 0 and volume ^ (d2 / 1000) or 0
 
         res.d1, res.d2, res.area = d1, d2, area
         res.openness, res.volume, res.aperture = open, volume, aperture
-        res.db_per_1000, res.extra = dbPer1000, extra
+        res.db_per_1000, res.extra, res.vol_extra = dbPer1000, extra, volExtra
         res.facing, res.directivity = facing, directivity
-        res.gain = aperture * extra * directivity * volume
+        res.gain = aperture * extra * directivity * volExtra
         res.pos, res.dist = mouth, d1 + d2
     end
 
