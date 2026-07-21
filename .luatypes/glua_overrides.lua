@@ -35,3 +35,17 @@ OBS_MODE_ROAMING = 6
 ---@param max? number
 ---@return ConVar
 function CreateConVar(name, value, flags, helptext, min, max) end
+
+--- Derma's dock constants are plain integers to Lua but a strict alias to the analyzer, so passing
+--- them trips param-type-mismatch. Re-type each one we use as its alias so call sites match.
+---@type DOCK
+FILL = 1
+---@type DOCK
+TOP = 4
+
+--- g_ContextMenu is typed nil by the stub and the analyzer's structural inference resolves to PANEL;
+--- neither knows about the :Open() / :IsVisible() the sandbox gamemode adds. Cast to this to use them.
+---@class ContextMenuPanel : Panel
+---@field Open fun(self: ContextMenuPanel)
+---@field Close fun(self: ContextMenuPanel)
+---@field IsOpen fun(self: ContextMenuPanel): boolean
