@@ -378,6 +378,29 @@ local SOUND_TUNING_DEFAULTS = {
 Doors.SoundTuning = table.Copy(SOUND_TUNING_DEFAULTS) ---@type doors_sound_tuning
 Doors.SoundTuningDefaults = SOUND_TUNING_DEFAULTS ---@type doors_sound_tuning
 
+-- Virtualisation floors, tuned live in `doors_debug_sound` next to the doorway tuning. A managed channel
+-- whose applied gain sits below the park floor for `delay` seconds has its BASS channel freed while the
+-- handle is kept, and reloaded once the gain climbs back above the unpark floor. Both are far below
+-- hearing, and unpark sits a little above park so the async reload lands before the sound is audible
+-- again and the two cannot flap. The park floor must clear Source's own distance-gain floor (it clamps an
+-- open-world sound at 0.001, -60 dB, at range) or a plain open-world sound never parks. Kept in dB, the
+-- unit they are judged in.
+---@class doors_sound_culling
+---@field park_db number applied-gain floor in dB a channel must sit below to be freed
+---@field unpark_db number applied-gain floor in dB it must climb back above to reload, above park_db
+---@field delay number seconds below the park floor before the channel is freed
+local SOUND_CULLING_DEFAULTS = {
+    park_db   = -54,
+    unpark_db = -50,
+    delay     = 3,
+}
+Doors.SoundCulling = table.Copy(SOUND_CULLING_DEFAULTS) ---@type doors_sound_culling
+Doors.SoundCullingDefaults = SOUND_CULLING_DEFAULTS ---@type doors_sound_culling
+
+---@param db number
+---@return number gain
+local function dbToGain(db) return 10 ^ (db / 20) end
+
 -- The doorway area at and above which size stops mattering - an opening this big is acoustically just a
 -- gap in the wall. Roughly 128x128: a plain physical size rather than anything drawn from one consumer's
 -- content, since doorways range from a cupboard to thousands of units a side.
@@ -1202,19 +1225,6 @@ local SINGLEPLAYER = game.SinglePlayer()
 local sp_paused = false
 local last_think_frame = 0
 
--- Virtualisation floors. A managed channel whose applied gain sits below the park floor for PARK_DELAY
--- seconds has its BASS channel freed while the handle is kept (the owner never learns), and is reloaded
--- once the gain climbs back above the unpark floor. Both are far below hearing, and unpark sits a little
--- above park so the async reload lands before the sound is audible again and the two cannot flap.
---
--- res.applied is a linear gain, so the dB floors are converted to it once here. The park floor sits above
--- Source's own distance-gain floor (0.001, which the engine clamps to at extreme range), so a plain
--- open-world sound parks too rather than resting forever right on that clamp; a boundary-crossing sound
--- reaches far below it. Tuned by ear: a hum heard faintly just outside the door lands around 0.007.
-local PARK_GAIN = 10 ^ (-54 / 20)
-local UNPARK_GAIN = 10 ^ (-50 / 20)
-local PARK_DELAY = 3
-
 -- Start a freshly loaded channel: apply this frame's gain before it is heard (noplay kept it silent),
 -- optionally seek a resuming one-shot to where its logical clock has reached, then play - parked straight
 -- away if the load landed mid-pause so it doesn't play into it.
@@ -1305,7 +1315,7 @@ local function playManaged(opts)
     -- always be reborn on approach; a one-shot must still finish on its own while parked, so one whose
     -- length is not yet known loads once (which learns it) rather than born parked with no way to end.
     resolve(handle)
-    if handle.res.applied < PARK_GAIN and (handle.loop or handle.duration) then
+    if handle.res.applied < dbToGain(Doors.SoundCulling.park_db) and (handle.loop or handle.duration) then
         handle.parked = true
         handle.loading = false
         return handle
@@ -1538,7 +1548,7 @@ local function parkThink(handle)
         handle:Stop()
         return
     end
-    if res.applied >= UNPARK_GAIN then unpark(handle) end
+    if res.applied >= dbToGain(Doors.SoundCulling.unpark_db) then unpark(handle) end
 end
 
 -- A live handle each frame, after its gain is applied: park it once the gain has sat below the floor for
@@ -1550,9 +1560,9 @@ local function parkCheck(handle)
         handle.below_since = nil
         return
     end
-    if handle.res.applied < PARK_GAIN then
+    if handle.res.applied < dbToGain(Doors.SoundCulling.park_db) then
         handle.below_since = handle.below_since or RealTime()
-        if RealTime() - handle.below_since >= PARK_DELAY then park(handle) end
+        if RealTime() - handle.below_since >= Doors.SoundCulling.delay then park(handle) end
     else
         handle.below_since = nil
     end

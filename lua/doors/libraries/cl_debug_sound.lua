@@ -178,7 +178,8 @@ function RIG:RefreshList()
         local line = list:GetLine(k)
         if IsValid(line) then
             line:SetColumnText(2, h.patch and "engine" or (h.res.int and "through a doorway" or describe(h)))
-            line:SetColumnText(3, h.patch and "-" or string.format("%.1f dB", toDb(h.volume)))
+            line:SetColumnText(3, h.patch and "-"
+                or (h.parked and "parked" or string.format("%.1f dB", toDb(h.volume))))
         end
     end
 end
@@ -300,6 +301,7 @@ function RIG:Open(reveal)
     end
     local cfg = self.cfg
     local tuning = Doors.SoundTuning
+    local culling = Doors.SoundCulling
 
     local f = (IsValid(cmenu) and cmenu:Add("DFrame") or vgui.Create("DFrame")) --[[@as DFrame]]
     self.frame = f
@@ -349,7 +351,7 @@ function RIG:Open(reveal)
         if enabled then
             function sl:Think() self:SetEnabled(enabled() and true or false) end
         end
-        if store == tuning then widgets[#widgets + 1] = { sl, key } end
+        if store == tuning or store == culling then widgets[#widgets + 1] = { sl, store, key } end
     end
     ---@param text string
     ---@param key string
@@ -430,6 +432,11 @@ function RIG:Open(reveal)
     label("What the doorway costs a sound coming through it")
     slider("dB per 1000u, per halving of the doorway", 0, 40, 2, tuning, "falloff")
     slider("how much it aims its sound (0 = every way)", 0, 1, 2, tuning, "aim")
+
+    label("Virtualising distant sounds - free the channel, keep the handle")
+    slider("park below (dB)", -72, -30, 0, culling, "park_db")
+    slider("wake above (dB)", -72, -30, 0, culling, "unpark_db")
+    slider("wait this long below the floor first (s)", 0, 10, 1, culling, "delay")
 
     label("Door")
     check("hold the door at a set openness", "manual")
@@ -536,7 +543,13 @@ function RIG:Open(reveal)
         if res.int then
             curve(res.d1, maxd, function(d) return Doors:DistanceGain(d, lvl) end, Color(70, 85, 120))
             curve(res.d1, maxd, function(d)
-                return Doors:DistanceGain(d, lvl) * res.aperture * res.directivity
+                -- Directivity is an angle term the model pins to fully-facing at the mouth, so ramp it
+                -- from 1 there to the listener's value rather than drawing its full value as a step where
+                -- the sound meets the room. Volume is the consumer's own flat cross-boundary scalar and
+                -- part of the doorway gain, so including it lands the marker (res.applied) on this line.
+                local t = res.d2 > 0 and math.Clamp((d - res.d1) / res.d2, 0, 1) or 1
+                local directivity = 1 + (res.directivity - 1) * t
+                return Doors:DistanceGain(d, lvl) * res.aperture * directivity * res.volume
                     * 10 ^ (-(res.db_per_1000 * (d - res.d1) / 1000) / 20)
             end, Color(110, 210, 130))
 
@@ -551,6 +564,20 @@ function RIG:Open(reveal)
         surface.DrawRect(mx - 1, 10, 2, ph)
         surface.SetDrawColor(255, 255, 255)
         surface.DrawRect(mx - 3, ypos(res.applied) - 3, 6, 6)
+
+        -- the cull floors, dashed across the graph, so the headroom before this sound parks is visible
+        local cull = Doors.SoundCulling
+        ---@param db number
+        ---@param text string
+        ---@param col table
+        local function floorLine(db, text, col)
+            local y = 10 + ph * math.Clamp(db / DBFLOOR, 0, 1)
+            surface.SetDrawColor(col)
+            for x = pad, pad + pw - 4, 8 do surface.DrawRect(x, y, 4, 1) end
+            draw.SimpleText(text, "DermaDefault", pad + pw - 2, y - 8, col, TEXT_ALIGN_RIGHT)
+        end
+        floorLine(cull.park_db, "park", Color(210, 120, 90))
+        floorLine(cull.unpark_db, "wake", Color(120, 170, 210))
 
         draw.SimpleText("in the room", "DermaDefault", pad + 2, h - 18, Color(110, 150, 220))
         draw.SimpleText("through the doorway", "DermaDefault", pad + 84, h - 18, Color(110, 210, 130))
@@ -567,23 +594,27 @@ function RIG:Open(reveal)
     function readout:Think() self:SetText(RIG:Stats()) end
 
     button("DUMP THESE VALUES", function()
-        local t = Doors.SoundTuning
+        local t, c = Doors.SoundTuning, Doors.SoundCulling
         MsgN(string.format([[
 
 -- tuned in doors_debug_sound
-closed  = %.3f,   -- fully open is 1 by construction
-curve   = %.2f,
-falloff = %.2f,   -- dB per 1000u per halving below SIZE_NEUTRAL
-aim     = %.2f,
-]], t.closed, t.curve, t.falloff, t.aim))
+closed    = %.3f,   -- fully open is 1 by construction
+curve     = %.2f,
+falloff   = %.2f,   -- dB per 1000u per halving below SIZE_NEUTRAL
+aim       = %.2f,
+park_db   = %.0f,   -- free a channel that has sat below this
+unpark_db = %.0f,   -- reload once it climbs back above this
+delay     = %.0f,   -- seconds below the floor before parking
+]], t.closed, t.curve, t.falloff, t.aim, c.park_db, c.unpark_db, c.delay))
         chat.AddText("dumped to console")
     end)
 
     button("RESET TO DEFAULTS", function()
         for k, v in pairs(Doors.SoundTuningDefaults) do tuning[k] = v end
+        for k, v in pairs(Doors.SoundCullingDefaults) do culling[k] = v end
         for _, entry in ipairs(widgets) do
-            local pnl = entry[1]
-            if IsValid(pnl) then pnl:SetValue(tuning[entry[2]]) end
+            local pnl, store, key = entry[1], entry[2], entry[3]
+            if IsValid(pnl) then pnl:SetValue(store[key]) end
         end
     end)
 end
@@ -610,6 +641,9 @@ function RIG:Stats()
     local res = snd.res
     line("SOUND", string.format("%s   base %.3f -> playing %.4f%s", snd.path, snd.base, snd.volume,
         snd.omni and "   stereo wav, so omni and unpanned" or ""))
+    line("CULLING", snd.parked and "parked - channel freed, handle kept until it is heard again"
+        or string.format("live, %.1f dB (parks below %.0f dB after %ds)", toDb(res.applied),
+            Doors.SoundCulling.park_db, Doors.SoundCulling.delay))
     line("SETTLING", res.healing > 0
         and string.format("%.0f%% of a space change left, gliding from %.1f dB", res.healing * 100,
             toDb(snd.heal_from or 1))
