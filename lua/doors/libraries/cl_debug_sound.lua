@@ -20,6 +20,8 @@
 ---@field draw3d boolean mark the sound and the doorway in the world
 ---@field manual boolean hold the door at a chosen openness instead of following the real one
 ---@field openness number
+---@field cross_override boolean drive the consumer's cross-boundary volume from the slider instead of reading it
+---@field cross_volume number the cross-boundary volume to force while cross_override is on
 
 ---@class doors_sound_debug
 ---@field cfg doors_sound_debug_cfg
@@ -32,6 +34,8 @@
 ---@field focus doors_managed_sound? the sound the readouts describe
 ---@field held gmod_door_exterior? door currently being held open by hand
 ---@field held_getopenness function? the held door's real GetDoorOpenness, put back exactly on release
+---@field cv_held gmod_door_exterior? exterior whose cross-boundary volume is being driven from the slider
+---@field cv_getvolume function? that exterior's real GetCrossBoundaryVolume, put back exactly on release
 local RIG = {}
 
 -- Autorefresh re-runs this file, which would orphan the old panel inside the context menu and leave its
@@ -42,11 +46,13 @@ end
 Doors.SoundDebug = RIG
 
 RIG.cfg = {
-    level    = 75,
-    volume   = 1.00,
-    draw3d   = true,
-    manual   = false,
-    openness = 1.00,
+    level          = 75,
+    volume         = 1.00,
+    draw3d         = true,
+    manual         = false,
+    openness       = 1.00,
+    cross_override = false,
+    cross_volume   = 0.50,
 }
 RIG.rows = {}
 RIG.sel = 1
@@ -89,6 +95,26 @@ function RIG:HoldDoor(ext)
     self.held = ext
     self.held_getopenness = ext.GetDoorOpenness
     function ext:GetDoorOpenness() return RIG.cfg.openness end
+end
+
+-- The cross-boundary volume is the consumer's own (GetCrossBoundaryVolume), so preview a value the same
+-- way the door is held: override the getter on the focused sound's exterior, saving the real method and
+-- putting it back on release. Off by default, so the panel does not touch what you actually hear until
+-- you ask it to. This drives every sound crossing that one boundary, which is what makes it audible.
+function RIG:ReleaseCrossVolume()
+    local ext = self.cv_held
+    if IsValid(ext) then ext.GetCrossBoundaryVolume = self.cv_getvolume end
+    self.cv_held, self.cv_getvolume = nil, nil
+end
+
+---@param ext gmod_door_exterior?
+function RIG:HoldCrossVolume(ext)
+    if not self.cfg.cross_override or not IsValid(ext) then return self:ReleaseCrossVolume() end
+    if self.cv_held == ext then return end
+    self:ReleaseCrossVolume()
+    self.cv_held = ext
+    self.cv_getvolume = ext.GetCrossBoundaryVolume
+    function ext:GetCrossBoundaryVolume() return RIG.cfg.cross_volume end
 end
 
 --------------------------------------------------------------------------------------------------
@@ -198,6 +224,7 @@ local function think()
         end
         local int = focus and focus.res.int or findInterior()
         RIG:HoldDoor(IsValid(int) and int.exterior or nil)
+        RIG:HoldCrossVolume(IsValid(int) and int.exterior or nil)
 
         -- the two sliders that are ours to move, pushed at the handle rather than only read when it
         -- starts, so they can be judged while it plays
@@ -285,6 +312,7 @@ end
 function RIG:Close()
     self:Stop()
     self:ReleaseDoor()
+    self:ReleaseCrossVolume()
     self.focus = nil
     hook.Remove("Think", "doors_debug_sound")
     hook.Remove("PostDrawTranslucentRenderables", "doors_debug_sound")
@@ -435,6 +463,11 @@ function RIG:Open(reveal)
     label("What the doorway costs a sound coming through it")
     slider("dB per 1000u, per halving of the doorway", 0, 40, 2, tuning, "falloff")
     slider("how much it aims its sound (0 = every way)", 0, 1, 2, tuning, "aim")
+
+    label("Cross-boundary volume - the consumer's own, previewed here")
+    check("drive it from the slider (off = use the real value)", "cross_override")
+    slider("carries this much 1000u past the mouth", 0, 1, 2, cfg, "cross_volume",
+        function() return cfg.cross_override end)
 
     label("Virtualising distant sounds - free the channel, keep the handle")
     slider("park below (dB)", -72, -30, 0, culling, "park_db")
