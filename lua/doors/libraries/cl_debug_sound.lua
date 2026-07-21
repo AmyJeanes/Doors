@@ -470,8 +470,11 @@ function RIG:Open(reveal)
         local half = w / 2
         draw.SimpleText("you hear", "DermaDefault", half / 2, 13, Color(150, 155, 170),
             TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-        draw.SimpleText(string.format("%.1f dB", toDb(snd.volume)), "DermaLarge", half / 2, 34,
-            Color(200, 215, 235), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        -- parked = the channel is freed, so nothing is playing and snd.volume is frozen at the park
+        -- point; say so rather than showing that stale dB as if it were still being heard
+        draw.SimpleText(snd.parked and "parked" or string.format("%.1f dB", toDb(snd.volume)),
+            "DermaLarge", half / 2, 34, snd.parked and Color(150, 160, 180) or Color(200, 215, 235),
+            TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
         draw.SimpleText(string.format("%.0fu from the sound", res.dist), "DermaDefault", half / 2, 52,
             Color(130, 135, 150), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 
