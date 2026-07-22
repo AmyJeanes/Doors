@@ -27,7 +27,6 @@ local hooks={}
 -- >>> GENERATED hook overloads - do not edit; regen: scripts/generate-hook-types.ps1 >>>
 ---@overload fun(self: gmod_door_interior, name: "BodygroupChanged", id: string, func: fun(self: gmod_door_interior, bodygroup: number, value: number, ...))
 ---@overload fun(self: gmod_door_interior, name: "Cordon", id: string, func: fun(self: gmod_door_interior, class: string, v: Entity, ...))
----@overload fun(self: gmod_door_interior, name: "CustomData", id: string, func: fun(self: gmod_door_interior, customData: table, ...))
 ---@overload fun(self: gmod_door_interior, name: "Draw", id: string, func: fun(self: gmod_door_interior, ...))
 ---@overload fun(self: gmod_door_interior, name: "Initialize", id: string, func: fun(self: gmod_door_interior, ...))
 ---@overload fun(self: gmod_door_interior, name: "NoCollidePortal", id: string, func: fun(self: gmod_door_interior, portal: linked_portal_door, ent: Entity, ...))

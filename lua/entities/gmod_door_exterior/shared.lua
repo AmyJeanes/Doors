@@ -50,7 +50,6 @@ local hooks={}
 ---@overload fun(self: gmod_door_exterior, name: "PostTeleportPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ent: Entity, newpos: Vector, newang: Angle, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PreDraw", id: string, func: fun(self: gmod_door_exterior, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PreDrawPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ...))
----@overload fun(self: gmod_door_exterior, name: "PreInitialize", id: string, func: fun(self: gmod_door_exterior, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PreOnRemove", id: string, func: fun(self: gmod_door_exterior, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PreRenderPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, depth: number, ...))
 ---@overload fun(self: gmod_door_exterior, name: "SetupOwner", id: string, func: fun(self: gmod_door_exterior, ply: Player, ...))
