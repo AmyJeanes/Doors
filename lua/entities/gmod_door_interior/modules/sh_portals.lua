@@ -48,92 +48,95 @@ if SERVER then
         local ext=self.exterior.Portal
         if not int or not ext then return end
         self.portals={}
-        self.portals.exterior=ents.Create("linked_portal_door")
-        self.portals.interior=ents.Create("linked_portal_door")
-        
+        local extPortal=ents.Create("linked_portal_door")
+        local intPortal=ents.Create("linked_portal_door")
+        if not IsValid(extPortal) or not IsValid(intPortal) then error("entity creation failed: linked_portal_door") end
+        self.portals.exterior=extPortal
+        self.portals.interior=intPortal
+
         -- Exterior Portal
-        self.portals.exterior:SetWidth(ext.width)
-        self.portals.exterior:SetHeight(ext.height)
-        self.portals.exterior:SetPos(self.exterior:LocalToWorld(ext.pos))
-        self.portals.exterior:SetAngles(self.exterior:LocalToWorldAngles(ext.ang))
-        self.portals.exterior:SetExit(self.portals.interior)
-        self.portals.exterior:SetParent(self.exterior)
+        extPortal:SetWidth(ext.width)
+        extPortal:SetHeight(ext.height)
+        extPortal:SetPos(self.exterior:LocalToWorld(ext.pos))
+        extPortal:SetAngles(self.exterior:LocalToWorldAngles(ext.ang))
+        extPortal:SetExit(intPortal)
+        extPortal:SetParent(self.exterior)
 
         if ext.link then
-            self.portals.exterior:SetCustomLink(ext.link)
+            extPortal:SetCustomLink(ext.link)
         end
 
         if ext.exit_point_offset then
-            self.portals.exterior:SetExitPosOffset(ext.exit_point_offset.pos)
-            self.portals.exterior:SetExitAngOffset(ext.exit_point_offset.ang)
+            extPortal:SetExitPosOffset(ext.exit_point_offset.pos)
+            extPortal:SetExitAngOffset(ext.exit_point_offset.ang)
         elseif ext.exit_point then
-            self.portals.exterior:SetExitPosOffset(ext.exit_point.pos - ext.pos)
-            self.portals.exterior:SetExitAngOffset(ext.exit_point.ang - ext.ang)
+            extPortal:SetExitPosOffset(ext.exit_point.pos - ext.pos)
+            extPortal:SetExitAngOffset(ext.exit_point.ang - ext.ang)
         end
 
         if ext.thickness then
-            self.portals.exterior:SetThickness(ext.thickness)
+            extPortal:SetThickness(ext.thickness)
         end
 
         if ext.inverted then
-            self.portals.exterior:SetInverted(ext.inverted)
+            extPortal:SetInverted(ext.inverted)
         end
 
         if ext.model then
-            self.portals.exterior:SetCustomModel(ext.model)
+            extPortal:SetCustomModel(ext.model)
         end
 
         if ext.model_offset then
-            self.portals.exterior:SetCustomModelPosOffset(ext.model_offset.pos)
-            self.portals.exterior:SetCustomModelAngOffset(ext.model_offset.ang)
+            extPortal:SetCustomModelPosOffset(ext.model_offset.pos)
+            extPortal:SetCustomModelAngOffset(ext.model_offset.ang)
         end
 
-        self.portals.exterior.exterior = self.exterior
-        self.portals.exterior.interior = self
-        self.portals.exterior:Spawn()
-        self.portals.exterior:Activate()
-        
+        extPortal.exterior = self.exterior
+        extPortal.interior = self
+        extPortal:Spawn()
+        extPortal:Activate()
+
         -- interior Portal
-        self.portals.interior:SetWidth(int.width)
-        self.portals.interior:SetHeight(int.height)
-        self.portals.interior:SetPos(self:LocalToWorld(int.pos))
-        self.portals.interior:SetAngles(self:LocalToWorldAngles(int.ang))
-        self.portals.interior:SetExit(self.portals.exterior)
-        self.portals.interior:SetParent(self)
+        intPortal:SetWidth(int.width)
+        intPortal:SetHeight(int.height)
+        intPortal:SetPos(self:LocalToWorld(int.pos))
+        intPortal:SetAngles(self:LocalToWorldAngles(int.ang))
+        intPortal:SetExit(extPortal)
+        intPortal:SetParent(self)
 
         if int.link then
-            self.portals.interior:SetCustomLink(int.link)
+            intPortal:SetCustomLink(int.link)
         end
 
         if int.exit_point_offset then
-            self.portals.interior:SetExitPosOffset(int.exit_point_offset.pos)
-            self.portals.interior:SetExitAngOffset(int.exit_point_offset.ang)
+            intPortal:SetExitPosOffset(int.exit_point_offset.pos)
+            intPortal:SetExitAngOffset(int.exit_point_offset.ang)
         elseif int.exit_point then
-            self.portals.interior:SetExitPosOffset(int.exit_point.pos - int.pos)
-            self.portals.interior:SetExitAngOffset(int.exit_point.ang - int.ang)
+            intPortal:SetExitPosOffset(int.exit_point.pos - int.pos)
+            intPortal:SetExitAngOffset(int.exit_point.ang - int.ang)
         end
-        
+
         if int.thickness then
-            self.portals.interior:SetThickness(int.thickness)
+            intPortal:SetThickness(int.thickness)
         end
 
         if int.inverted then
-            self.portals.interior:SetInverted(int.inverted)
+            intPortal:SetInverted(int.inverted)
         end
 
         if int.model then
-            self.portals.interior:SetCustomModel(int.model)
+            intPortal:SetCustomModel(int.model)
         end
 
         if int.model_offset then
-            self.portals.interior:SetCustomModelPosOffset(int.model_offset.pos)
-            self.portals.interior:SetCustomModelAngOffset(int.model_offset.ang)
+            intPortal:SetCustomModelPosOffset(int.model_offset.pos)
+            intPortal:SetCustomModelAngOffset(int.model_offset.ang)
         end
 
-        self.portals.interior.interior = self
-        self.portals.interior.exterior = self.exterior
-        self.portals.interior:Spawn()
-        self.portals.interior:Activate()
+        intPortal.interior = self
+        intPortal.exterior = self.exterior
+        intPortal:Spawn()
+        intPortal:Activate()
 
         if self.CustomPortals then
             self.customportals={}
@@ -141,97 +144,100 @@ if SERVER then
                 ---@cast v doors_custom_portal
                 self.customportals[k] = {}
                 local portals = self.customportals[k]
-                portals.entry=ents.Create("linked_portal_door")
-                portals.exit=ents.Create("linked_portal_door")
+                local entryPortal=ents.Create("linked_portal_door")
+                local exitPortal=ents.Create("linked_portal_door")
+                if not IsValid(entryPortal) or not IsValid(exitPortal) then error("entity creation failed: linked_portal_door") end
+                portals.entry=entryPortal
+                portals.exit=exitPortal
 
                 -- Entry Portal
-                portals.entry:SetWidth(v.entry.width)
-                portals.entry:SetHeight(v.entry.height)
-                portals.entry:SetPos(self:LocalToWorld(v.entry.pos))
-                portals.entry:SetAngles(self:LocalToWorldAngles(v.entry.ang))
-                portals.entry:SetExit(portals.exit)
-                portals.entry:SetParent(self)
+                entryPortal:SetWidth(v.entry.width)
+                entryPortal:SetHeight(v.entry.height)
+                entryPortal:SetPos(self:LocalToWorld(v.entry.pos))
+                entryPortal:SetAngles(self:LocalToWorldAngles(v.entry.ang))
+                entryPortal:SetExit(exitPortal)
+                entryPortal:SetParent(self)
 
                 if v.entry.link then
-                    portals.entry:SetCustomLink(v.entry.link)
+                    entryPortal:SetCustomLink(v.entry.link)
                 end
 
                 if v.entry.exit_point_offset then
-                    portals.entry:SetExitPosOffset(v.entry.exit_point_offset.pos)
-                    portals.entry:SetExitAngOffset(v.entry.exit_point_offset.ang)
+                    entryPortal:SetExitPosOffset(v.entry.exit_point_offset.pos)
+                    entryPortal:SetExitAngOffset(v.entry.exit_point_offset.ang)
                 elseif v.entry.exit_point then
-                    portals.entry:SetExitPosOffset(v.entry.exit_point.pos - v.entry.pos)
-                    portals.entry:SetExitAngOffset(v.entry.exit_point.ang - v.entry.ang)
+                    entryPortal:SetExitPosOffset(v.entry.exit_point.pos - v.entry.pos)
+                    entryPortal:SetExitAngOffset(v.entry.exit_point.ang - v.entry.ang)
                 end
 
                 if v.entry.thickness then
-                    portals.entry:SetThickness(v.entry.thickness)
+                    entryPortal:SetThickness(v.entry.thickness)
                 end
 
                 if v.entry.inverted then
-                    portals.entry:SetInverted(v.entry.inverted)
+                    entryPortal:SetInverted(v.entry.inverted)
                 end
 
                 if v.entry.model then
-                    portals.entry:SetCustomModel(v.entry.model)
+                    entryPortal:SetCustomModel(v.entry.model)
                 end
 
                 if v.entry.model_offset then
-                    portals.entry:SetCustomModelPosOffset(v.entry.model_offset.pos)
-                    portals.entry:SetCustomModelAngOffset(v.entry.model_offset.ang)
+                    entryPortal:SetCustomModelPosOffset(v.entry.model_offset.pos)
+                    entryPortal:SetCustomModelAngOffset(v.entry.model_offset.ang)
                 end
 
-                portals.entry.exterior = self.exterior
-                portals.entry.interior = self
-                portals.entry.black = v.entry.black
-                portals.entry.fallback = v.entry.fallback
-                portals.entry:Spawn()
-                portals.entry:Activate()
+                entryPortal.exterior = self.exterior
+                entryPortal.interior = self
+                entryPortal.black = v.entry.black
+                entryPortal.fallback = v.entry.fallback
+                entryPortal:Spawn()
+                entryPortal:Activate()
 
                 -- Exit Portal
-                portals.exit:SetWidth(v.exit.width)
-                portals.exit:SetHeight(v.exit.height)
-                portals.exit:SetPos(self:LocalToWorld(v.exit.pos))
-                portals.exit:SetAngles(self:LocalToWorldAngles(v.exit.ang))
-                portals.exit:SetExit(portals.entry)
-                portals.exit:SetParent(self)
+                exitPortal:SetWidth(v.exit.width)
+                exitPortal:SetHeight(v.exit.height)
+                exitPortal:SetPos(self:LocalToWorld(v.exit.pos))
+                exitPortal:SetAngles(self:LocalToWorldAngles(v.exit.ang))
+                exitPortal:SetExit(entryPortal)
+                exitPortal:SetParent(self)
 
                 if v.exit.link then
-                    portals.exit:SetCustomLink(v.exit.link)
+                    exitPortal:SetCustomLink(v.exit.link)
                 end
 
                 if v.exit.exit_point_offset then
-                    portals.exit:SetExitPosOffset(v.exit.exit_point_offset.pos)
-                    portals.exit:SetExitAngOffset(v.exit.exit_point_offset.ang)
+                    exitPortal:SetExitPosOffset(v.exit.exit_point_offset.pos)
+                    exitPortal:SetExitAngOffset(v.exit.exit_point_offset.ang)
                 elseif v.exit.exit_point then
-                    portals.exit:SetExitPosOffset(v.exit.exit_point.pos - v.exit.pos)
-                    portals.exit:SetExitAngOffset(v.exit.exit_point.ang - v.exit.ang)
+                    exitPortal:SetExitPosOffset(v.exit.exit_point.pos - v.exit.pos)
+                    exitPortal:SetExitAngOffset(v.exit.exit_point.ang - v.exit.ang)
                 end
 
                 if v.exit.thickness then
-                    portals.exit:SetThickness(v.exit.thickness)
+                    exitPortal:SetThickness(v.exit.thickness)
                 end
 
                 if v.exit.inverted then
-                    portals.exit:SetInverted(v.exit.inverted)
+                    exitPortal:SetInverted(v.exit.inverted)
                 end
 
                 if v.exit.model then
-                    portals.exit:SetCustomModel(v.exit.model)
+                    exitPortal:SetCustomModel(v.exit.model)
                 end
 
                 if v.exit.model_offset then
-                    portals.exit:SetCustomModelPosOffset(v.exit.model_offset.pos)
-                    portals.exit:SetCustomModelAngOffset(v.exit.model_offset.ang)
+                    exitPortal:SetCustomModelPosOffset(v.exit.model_offset.pos)
+                    exitPortal:SetCustomModelAngOffset(v.exit.model_offset.ang)
                 end
 
 
-                portals.exit.interior = self
-                portals.exit.exterior = self.exterior
-                portals.exit.black = v.exit.black
-                portals.exit.fallback = v.exit.fallback
-                portals.exit:Spawn()
-                portals.exit:Activate()
+                exitPortal.interior = self
+                exitPortal.exterior = self.exterior
+                exitPortal.black = v.exit.black
+                exitPortal.fallback = v.exit.fallback
+                exitPortal:Spawn()
+                exitPortal:Activate()
             end
         end
 
@@ -240,6 +246,7 @@ if SERVER then
             for k,v in pairs(self.FalseWorldWindows) do
                 ---@cast v doors_portal_side
                 local fworld = ents.Create("linked_portal_door")
+                if not IsValid(fworld) then error("entity creation failed: linked_portal_door") end
                 self.falseworldwindows[k] = fworld
 
                 -- False World Window

@@ -3,12 +3,15 @@ AddCSLuaFile('shared.lua')
 include('shared.lua')
 
 ---@param ply Player
----@param tr WPTraceResult
+---@param tr TraceResult
 ---@param ClassName string
 function ENT:SpawnFunction( ply, tr, ClassName )
     if not tr.Hit then return end
     local SpawnPos = tr.HitPos + tr.HitNormal
     local ent = ents.Create( ClassName )
+    if not IsValid(ent) then error("entity creation failed: " .. ClassName) end
+    -- SpawnFunction is invoked with this SENT's own classname
+    ---@cast ent gmod_door_interior
     ent:SetPos(SpawnPos)
     local ang=Angle(0, (ply:GetPos()-SpawnPos):Angle().y, 0)
     ent:SetAngles(ang)

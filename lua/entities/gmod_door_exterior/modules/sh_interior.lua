@@ -115,6 +115,9 @@ if SERVER then
             return
         end
         local e=ents.Create(self.Interior)
+        if not IsValid(e) then error("entity creation failed: " .. self.Interior) end
+        -- self.Interior names an interior door class
+        ---@cast e gmod_door_interior
         e.spacecheck=true
         e.exterior=self
         e.ID=self.ID
