@@ -55,7 +55,7 @@ local hooks={}
 ---@overload fun(self: gmod_door_exterior, name: "SetupOwner", id: string, func: fun(self: gmod_door_exterior, ply: Player, ...))
 ---@overload fun(self: gmod_door_exterior, name: "ShouldAllowThickPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ...))
 ---@overload fun(self: gmod_door_exterior, name: "ShouldDraw", id: string, func: fun(self: gmod_door_exterior, ...))
----@overload fun(self: gmod_door_exterior, name: "ShouldDrawGhost", id: string, func: fun(self: gmod_door_exterior, ent: any, ghost: Entity, portal: linked_portal_door, exit: linked_portal_door, ...))
+---@overload fun(self: gmod_door_exterior, name: "ShouldDrawGhost", id: string, func: fun(self: gmod_door_exterior, ent: Entity, ghost: Entity, portal: linked_portal_door, exit: linked_portal_door, ...))
 ---@overload fun(self: gmod_door_exterior, name: "ShouldGhostPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ent: Entity, ...))
 ---@overload fun(self: gmod_door_exterior, name: "ShouldRenderPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, exit: linked_portal_door, origin: Vector, ...))
 ---@overload fun(self: gmod_door_exterior, name: "ShouldSpawnInterior", id: string, func: fun(self: gmod_door_exterior, ...))

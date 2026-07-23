@@ -420,6 +420,12 @@ else
         end
     end)
 
+    ---@param ent Entity
+    local function shellHidden(ent)
+        return (ent.DoorExterior or ent.DoorInterior) and ent._init
+            and ent:CallHook("ShouldDraw")==false
+    end
+
     -- Route world-portals' per-draw ghost-draw query to the exit portal's parent,
     -- which hosts the emerged half and decides whether it may draw this pass.
     ---@param ent Entity
@@ -427,10 +433,7 @@ else
     ---@param portal linked_portal_door
     ---@param exit linked_portal_door
     hook.Add("wp-shouldghostdraw","doors-portals",function(ent,ghost,portal,exit)
-        if (ent.DoorExterior or ent.DoorInterior) and ent._init
-            and ent:CallHook("ShouldDraw")==false then
-            return false
-        end
+        if shellHidden(ent) then return false end
         local p=IsValid(exit) and exit:GetParent()
         if IsValid(p) and (p.DoorExterior or p.DoorInterior) and p._init then
             return p:CallHook("ShouldDrawGhost",ent,ghost,portal,exit)
