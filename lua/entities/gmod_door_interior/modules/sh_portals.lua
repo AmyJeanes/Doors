@@ -141,7 +141,6 @@ if SERVER then
         if self.CustomPortals then
             self.customportals={}
             for k,v in pairs(self.CustomPortals) do
-                ---@cast v doors_custom_portal
                 self.customportals[k] = {}
                 local portals = self.customportals[k]
                 local entryPortal=ents.Create("linked_portal_door")
@@ -244,7 +243,6 @@ if SERVER then
         if self.FalseWorldWindows then
             self.falseworldwindows={}
             for k,v in pairs(self.FalseWorldWindows) do
-                ---@cast v doors_portal_side
                 local fworld = ents.Create("linked_portal_door")
                 if not IsValid(fworld) then error("entity creation failed: linked_portal_door") end
                 self.falseworldwindows[k] = fworld
