@@ -1,12 +1,30 @@
 -- Handles players inside the interior
 
+---@class gmod_door_interior
+---@field _exitboxtime number?
+---@field _exitboxmin Vector
+---@field _exitboxmax Vector
+---@field _lpiframe integer?
+---@field _lpi boolean
+
 ---@api
 ---@param pos Vector
 ---@return boolean
 function ENT:PositionInside(pos)
-    if self.ExitBox and (pos:WithinAABox(self:LocalToWorld(self.ExitBox.Min),self:LocalToWorld(self.ExitBox.Max))) then
-        return true
-    elseif self.ExitDistance and pos:Distance(self:GetPos()) < self.ExitDistance then
+    if self.ExitBox then
+        -- The interior is effectively static, so the world-space box is
+        -- derived at most once per tick.
+        local now = CurTime()
+        if self._exitboxtime ~= now then
+            self._exitboxtime = now
+            self._exitboxmin = self:LocalToWorld(self.ExitBox.Min)
+            self._exitboxmax = self:LocalToWorld(self.ExitBox.Max)
+        end
+        if pos:WithinAABox(self._exitboxmin, self._exitboxmax) then
+            return true
+        end
+    end
+    if self.ExitDistance and pos:Distance(self:GetPos()) < self.ExitDistance then
         return true
     end
     return false
@@ -159,7 +177,7 @@ if SERVER then
     
     ENT:AddHook("Think", "handleplayers", function(self)
         if not self._init then return end
-        for _,v in pairs(player.GetAll()) do
+        for _, v in player.Iterator() do
             self:CheckPlayer(v)
         end
     end)
@@ -211,17 +229,28 @@ else
     ---@api
     ---@return boolean
     function ENT:LocalPlayerInside()
+        -- Cache per frame as this is called many times in a single frame.
+        local fc = Doors.FrameNum
+        if self._lpiframe == fc then return self._lpi end
+        self._lpiframe = fc
+        local r = false
         local ply = LocalPlayer()
-        if ply.doori == self then return true end
-        if not self.contains then return false end
-        local box = ply.door
-        for _ = 1, 16 do -- cap against a stale insideof cycle
-            if not IsValid(box) then return false end
-            if self.contains[box] then return true end
-            local int = box.insideof
-            box = IsValid(int) and int.exterior or nil
+        if ply.doori == self then
+            r = true
+        elseif self.contains then
+            local box = ply.door
+            for _ = 1, 16 do -- cap against a stale insideof cycle
+                if not IsValid(box) then break end
+                if self.contains[box] then
+                    r = true
+                    break
+                end
+                local int = box.insideof
+                box = IsValid(int) and int.exterior or nil
+            end
         end
-        return false
+        self._lpi = r
+        return r
     end
 
     ENT:AddHook("ShouldDraw", "handleplayers", function(self)
