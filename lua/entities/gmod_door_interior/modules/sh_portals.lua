@@ -427,6 +427,10 @@ else
     ---@param portal linked_portal_door
     ---@param exit linked_portal_door
     hook.Add("wp-shouldghostdraw","doors-portals",function(ent,ghost,portal,exit)
+        if (ent.DoorExterior or ent.DoorInterior) and ent._init
+            and ent:CallHook("ShouldDraw")==false then
+            return false
+        end
         local p=IsValid(exit) and exit:GetParent()
         if IsValid(p) and (p.DoorExterior or p.DoorInterior) and p._init then
             return p:CallHook("ShouldDrawGhost",ent,ghost,portal,exit)
@@ -493,7 +497,6 @@ end)
 ---@param portal linked_portal_door
 ---@param ent Entity
 hook.Add("wp-shouldghost","doors-portals",function(portal,ent)
-    if ent.DoorInterior or ent.DoorExterior then return false end
     local p=portal:GetParent()
     if IsValid(p) and (p.DoorInterior or p.DoorExterior) and p._init then
         return p:CallHook("ShouldGhostPortal",portal,ent)
