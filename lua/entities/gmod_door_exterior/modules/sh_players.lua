@@ -18,6 +18,7 @@ function ENT:ResolveClearPos(ply, origin, avoid)
     ---@param drop boolean?
     ---@return TraceResult
     local function hull(pos, drop)
+        ---@type table
         local td
         if IsValid(int) then
             td = int:GetStuckTrace(ply)
@@ -211,9 +212,9 @@ if SERVER then
 else
     net.Receive("Doors-EnterExit", function()
         local enter=net.ReadBool()
-        local ply=net.ReadEntity()
-        local ext=net.ReadEntity()
-        local int=net.ReadEntity()
+        local ply=net.ReadEntity() --[[@as Player]]
+        local ext=net.ReadEntity() --[[@as gmod_door_exterior]]
+        local int=net.ReadEntity() --[[@as gmod_door_interior]]
 
         if not IsValid(ply) then return end
         
@@ -266,6 +267,7 @@ else
         -- defers to the server.
         local int = self.interior
         if int:IsStuck(ent) then
+            ---@type Vector?
             local safe = int:ResolveSafePos(ent, false)
             if safe then ent:SetPos(safe) end
         end

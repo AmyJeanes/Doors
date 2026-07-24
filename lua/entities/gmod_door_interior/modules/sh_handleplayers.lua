@@ -80,6 +80,7 @@ end
 ---@api
 ---@param ply Player
 ---@param exiting boolean?
+---@return Vector?
 function ENT:ResolveSafePos(ply, exiting)
     ---@param pos Vector
     local function clear(pos)
@@ -195,7 +196,8 @@ if SERVER then
                 local hit = util.TraceHull(self:GetStuckTrace(ply)).Entity
                 -- resolve via the shell they're stuck in, so its OWN exit door escapes it (ours may point wrong)
                 local resolver = self
-                if IsValid(hit) then
+                -- the hull can hit anything, so confirm it is a shell before reading through it
+                if IsValid(hit) and hit.DoorExterior then
                     local shellInt = hit.interior
                     if IsValid(shellInt) and shellInt.ResolveSafePos then resolver = shellInt end
                 end

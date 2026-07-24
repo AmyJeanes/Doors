@@ -3,6 +3,7 @@
 ---@field Fallback table?
 ---@field interior gmod_door_interior?
 ---@field Portal doors_portal_side?
+---@field occupants table<Player, boolean>
 ---@field initqueue table
 ---@field _creatorsteamid string?
 
@@ -18,6 +19,7 @@ ENT.DoorExterior    = true
 ENT.Interior        = "gmod_door_interior"
 
 -- Hook system for modules
+---@type table<string, table<string, fun(self: gmod_door_exterior, ...): any>>
 local hooks={}
 
 ---@api
@@ -25,10 +27,11 @@ local hooks={}
 ---@param id string
 ---@param func fun(self: gmod_door_exterior, ...): any?
 -- >>> GENERATED hook overloads - do not edit; regen: scripts/generate-hook-types.ps1 >>>
----@overload fun(self: gmod_door_exterior, name: "AllowInteriorPos", id: string, func: fun(self: gmod_door_exterior, arg1: any, nowhere: Vector, arg3: Vector, arg4: Vector, ...))
+---@overload fun(self: gmod_door_exterior, name: "AllowInteriorPos", id: string, func: fun(self: gmod_door_exterior, arg1: any, nowhere: Vector, arg3: any, arg4: any, ...))
 ---@overload fun(self: gmod_door_exterior, name: "BodygroupChanged", id: string, func: fun(self: gmod_door_exterior, bodygroup: number, value: number, ...))
 ---@overload fun(self: gmod_door_exterior, name: "CanPlayerEnter", id: string, func: fun(self: gmod_door_exterior, ply: Player, ...))
 ---@overload fun(self: gmod_door_exterior, name: "CanPlayerExit", id: string, func: fun(self: gmod_door_exterior, ply: Player, ...))
+---@overload fun(self: gmod_door_exterior, name: "Cordon", id: string, func: fun(self: gmod_door_exterior, class: string, v: Entity, ...))
 ---@overload fun(self: gmod_door_exterior, name: "CustomData", id: string, func: fun(self: gmod_door_exterior, customData: table, ...))
 ---@overload fun(self: gmod_door_exterior, name: "Draw", id: string, func: fun(self: gmod_door_exterior, ...))
 ---@overload fun(self: gmod_door_exterior, name: "FindingPosition", id: string, func: fun(self: gmod_door_exterior, e: gmod_door_interior, creator: Player, ...))
@@ -39,22 +42,19 @@ local hooks={}
 ---@overload fun(self: gmod_door_exterior, name: "NoCollidePortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ent: Entity, ...))
 ---@overload fun(self: gmod_door_exterior, name: "OnRemove", id: string, func: fun(self: gmod_door_exterior, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PhysicsUpdate", id: string, func: fun(self: gmod_door_exterior, ph: PhysObj, ...))
----@overload fun(self: gmod_door_exterior, name: "PlayerEnter", id: string, func: fun(self: gmod_door_exterior, ply: Entity, ...))
----@overload fun(self: gmod_door_exterior, name: "PlayerExit", id: string, func: fun(self: gmod_door_exterior, ply: Entity, ...))
+---@overload fun(self: gmod_door_exterior, name: "PlayerEnter", id: string, func: fun(self: gmod_door_exterior, ply: Player, ...))
+---@overload fun(self: gmod_door_exterior, name: "PlayerExit", id: string, func: fun(self: gmod_door_exterior, ply: Player, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PlayerInitialize", id: string, func: fun(self: gmod_door_exterior, ply: Player, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PostDrawPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PostInitialize", id: string, func: fun(self: gmod_door_exterior, ...))
----@overload fun(self: gmod_door_exterior, name: "PostPlayerExit", id: string, func: fun(self: gmod_door_exterior, ply: Player, forced: boolean?, notp: boolean?, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PostPlayerInitialize", id: string, func: fun(self: gmod_door_exterior, ply: Player, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PostRenderPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, depth: number, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PostTeleportPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ent: Entity, newpos: Vector, newang: Angle, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PreDraw", id: string, func: fun(self: gmod_door_exterior, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PreDrawPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ...))
----@overload fun(self: gmod_door_exterior, name: "PreOnRemove", id: string, func: fun(self: gmod_door_exterior, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PreRenderPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, depth: number, ...))
----@overload fun(self: gmod_door_exterior, name: "SetupOwner", id: string, func: fun(self: gmod_door_exterior, ply: Player, ...))
+---@overload fun(self: gmod_door_exterior, name: "SetupOwner", id: string, func: fun(self: gmod_door_exterior, ply: NULL|Player, ...))
 ---@overload fun(self: gmod_door_exterior, name: "ShouldAllowThickPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ...))
----@overload fun(self: gmod_door_exterior, name: "ShouldDraw", id: string, func: fun(self: gmod_door_exterior, ...))
 ---@overload fun(self: gmod_door_exterior, name: "ShouldDrawGhost", id: string, func: fun(self: gmod_door_exterior, ent: Entity, ghost: Entity, portal: linked_portal_door, exit: linked_portal_door, ...))
 ---@overload fun(self: gmod_door_exterior, name: "ShouldGhostPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ent: Entity, ...))
 ---@overload fun(self: gmod_door_exterior, name: "ShouldRenderPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, exit: linked_portal_door, origin: Vector, ...))
@@ -64,6 +64,7 @@ local hooks={}
 ---@overload fun(self: gmod_door_exterior, name: "ShouldTracePortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ...))
 ---@overload fun(self: gmod_door_exterior, name: "SkinChanged", id: string, func: fun(self: gmod_door_exterior, i: number, ...))
 ---@overload fun(self: gmod_door_exterior, name: "SlowThink", id: string, func: fun(self: gmod_door_exterior, ...))
+---@overload fun(self: gmod_door_exterior, name: "StuckFilter", id: string, func: fun(self: gmod_door_exterior, ...))
 ---@overload fun(self: gmod_door_exterior, name: "Think", id: string, func: fun(self: gmod_door_exterior, arg1: number, ...))
 ---@overload fun(self: gmod_door_exterior, name: "TraceFilterPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ...))
 ---@overload fun(self: gmod_door_exterior, name: "Use", id: string, func: fun(self: gmod_door_exterior, a: Entity, c: Entity, ...))

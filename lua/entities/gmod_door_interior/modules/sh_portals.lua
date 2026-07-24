@@ -19,6 +19,10 @@
 ---@field entry doors_portal_side
 ---@field exit doors_portal_side
 
+---@class doors_portal_pair
+---@field exterior linked_portal_door
+---@field interior linked_portal_door
+
 if SERVER then
 
     ENT:AddHook("PlayerInitialize", "portals", function(self)

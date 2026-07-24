@@ -28,12 +28,15 @@ if SERVER then
             creator:ChatPrint("Please wait, finding suitable spawn location for interior..")
         end
         coroutine.yield()
-        local td={}
         local tdret={}
-        td.output=tdret
-        td.mins=e.mins or e:OBBMins()
-        td.maxs=e.maxs or e:OBBMaxs()
-        td.mask=MASK_PLAYERSOLID
+        local td={
+            output=tdret --[[@as TraceResult]],
+            mins=e.mins or e:OBBMins(),
+            maxs=e.maxs or e:OBBMaxs(),
+            mask=MASK_PLAYERSOLID,
+            start=vector_origin,
+            endpos=vector_origin,
+        }
         local max=16384
         local tries=GetConVar("doors_interior_tries"):GetInt()
         local targetframetime=1/30
@@ -50,7 +53,7 @@ if SERVER then
             td.start=nowhere
             td.endpos=nowhere
             if ((not highest) or (highest and nowhere.z>highest.z))
-                and (not util.TraceHull(td --[[@as HullTrace]]).Hit)
+                and (not util.TraceHull(td).Hit)
                 and (self:CallHook("AllowInteriorPos",nil,nowhere,td.mins,td.maxs)~=false)
                 and not mapPropInBox(nowhere,td.mins,td.maxs)
             then
