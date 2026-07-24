@@ -13,11 +13,6 @@ on:
       publish:
         type: boolean
         description: Publish to workshop
-      addon:
-        type: choice
-        description: Workshop addon
-        options:
-        - beta
 
 jobs:
   glua-check:
@@ -103,26 +98,10 @@ jobs:
         shell: pwsh
         run: ./scripts/typing-check.ps1
 
-  setup:
-    name: Resolve workshop target
-    runs-on: ubuntu-latest
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.publish == 'true'
-    outputs:
-      id: ${{ steps.pick.outputs.id }}
-    steps:
-      - name: Pick workshop id
-        id: pick
-        run: |
-          if [[ "${{ github.event.inputs.addon }}" == "beta" || "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "id=${{ vars.BETA_WORKSHOP_ID }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "Unknown workshop ID" 1>&2
-            exit 1
-          fi
-
   publish:
-    name: Publish to workshop
-    needs: [setup, glua-check, typing-check]
+    name: Publish to beta workshop
+    needs: [glua-check, typing-check]
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.publish == 'true'
     # Serialize beta uploads so a rare double-trigger queues instead of racing gmpublish.
     concurrency:
       group: doors-beta-publish
@@ -130,9 +109,9 @@ jobs:
     uses: AmyJeanes/gmod-addon-tools/.github/workflows/publish-workshop.yml@b30868e4407424ab4f05448f3e0323ec7955214e # v0.28.3
     with:
       addon: Doors
-      workshop_id: ${{ needs.setup.outputs.id }}
+      workshop_id: ${{ vars.BETA_WORKSHOP_ID }}
       mfa: false
-      dry_run: ${{ needs.setup.outputs.id == '' }}
+      dry_run: ${{ vars.BETA_WORKSHOP_ID == '' }}
       merge_repo: AmyJeanes/world-portals
       merge_ref: main
     secrets:
