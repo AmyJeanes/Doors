@@ -267,6 +267,7 @@ else
         -- defers to the server.
         local int = self.interior
         if int:IsStuck(ent) then
+            -- glua_ls 1.1.1: ResolveSafePos' declared @return still reads as inferred here.
             ---@type Vector?
             local safe = int:ResolveSafePos(ent, false)
             if safe then ent:SetPos(safe) end
