@@ -24,32 +24,32 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: Doors
 
       # Sibling addons on the .luarc.json workspace library - glua_ls needs them to
       # resolve cross-addon types (e.g. a hook receiver inferred through linked_portal_door).
       - name: Checkout world-portals
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: AmyJeanes/world-portals
           ref: main
           path: world-portals
 
       - name: Checkout wire
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: wiremod/wire
           ref: master
           path: wire
 
       - name: Checkout gmod-addon-tools
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: AmyJeanes/gmod-addon-tools
           # renovate: datasource=github-tags depName=AmyJeanes/gmod-addon-tools
-          ref: v0.26.1
+          ref: v0.29.8
           path: gmod-addon-tools
 
       # The wiki is a separate git repo (<repo>.wiki.git). The default GITHUB_TOKEN

@@ -1346,8 +1346,11 @@ local function playManaged(opts)
             -- learn the length once per path from the channel itself - BASS is the oracle, no header
             -- parse - so a later born-parked one-shot of this path knows when it ends without loading
             if not handle.loop and handle.duration == nil then
-                local len = chan:GetLength()
-                if len and len > 0 then handle.duration, header.duration = len, len end
+                local len = chan:GetLength() ---@type number?
+                if len and len > 0 then
+                    handle.duration = len
+                    header.duration = len
+                end
             end
             -- with a body to hand over to, this channel is only playing the intro, so it must not loop
             startChannel(handle, chan, handle.loop and bodyPath == nil)

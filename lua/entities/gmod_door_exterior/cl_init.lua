@@ -9,6 +9,9 @@ function ENT:Draw()
             self:DrawModel()
         end
         if WireLib then
+            -- ENT.Base is base_wire_entity only when Wire is mounted, so the analyzer
+            -- resolves the non-Wire branch and can't see us as a wire entity here
+            ---@diagnostic disable-next-line: infer-unknown
             Wire_Render(self)
         end
         self:CallHook("Draw")
@@ -16,9 +19,9 @@ function ENT:Draw()
 end
 
 net.Receive("Doors-Initialize", function(len)
-    local ext=net.ReadEntity()
-    local int=net.ReadEntity()
-    local ply=net.ReadEntity()
+    local ext=net.ReadEntity() --[[@as gmod_door_exterior]]
+    local int=net.ReadEntity() --[[@as gmod_door_interior]]
+    local ply=net.ReadEntity() --[[@as Player]]
     if IsValid(ext) then
         ext.interior=int
         if IsValid(ply) then

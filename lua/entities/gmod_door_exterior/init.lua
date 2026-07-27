@@ -3,7 +3,7 @@ AddCSLuaFile('shared.lua')
 include('shared.lua')
 
 ---@param ply Player
----@param tr WPTraceResult
+---@param tr TraceResult
 ---@param ClassName string
 ---@param customData table?
 function ENT:SpawnFunction(ply, tr, ClassName, customData)
@@ -16,6 +16,9 @@ function ENT:SpawnFunction(ply, tr, ClassName, customData)
     if SpawnPos == nil then return end
 
     local ent = ents.Create( ClassName )
+    if not IsValid(ent) then error("entity creation failed: " .. ClassName) end
+    -- SpawnFunction is invoked with this SENT's own classname
+    ---@cast ent gmod_door_exterior
     ent:SetPos(SpawnPos)
     local ang=Angle(0, (ply:GetPos()-SpawnPos):Angle().y, 0)
     ent:SetAngles(ang)
@@ -41,8 +44,8 @@ end
 
 util.AddNetworkString("Doors-Initialize")
 net.Receive("Doors-Initialize", function(len,ply)
-    local ext=net.ReadEntity() --[[@as gmod_door_exterior]]
-    if IsValid(ext) then
+    local ext=net.ReadEntity()
+    if IsValid(ext) and ext.DoorExterior then
         if ext.intready then
             ext:InitializePlayer(ply)
         else
@@ -95,16 +98,17 @@ function ENT:Think()
         end
     end
 
-    self:CallHook("Think",CurTime()-self.lastthink)
-    self.lastthink=CurTime()
+    local now = CurTime()
+    self:CallHook("Think", now - self.lastthink)
+    self.lastthink = now
 
-    if self._init and CurTime() >= self.nextslowthink then
-        self.nextslowthink = CurTime() + 1
+    if self._init and now >= self.nextslowthink then
+        self.nextslowthink = now + 1
         self:CallHook("SlowThink")
     end
 
     if self:CallHook("ShouldThinkFast") then
-        self:NextThink(CurTime())
+        self:NextThink(now)
         return true
     end
 end

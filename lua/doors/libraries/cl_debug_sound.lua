@@ -193,7 +193,7 @@ function RIG:RefreshList()
 
     if stale then
         list:Clear()
-        local rows = {} ---@type doors_managed_sound[]
+        local rows = {} --[[@as doors_managed_sound[] ]]
         self.rows = rows
         for k, h in ipairs(active) do
             rows[k] = h
@@ -365,7 +365,8 @@ function RIG:Open(reveal)
         l:SetText(text) l:SetTextColor(Color(220, 220, 235)) l:SetFont("DermaDefaultBold")
     end
 
-    local widgets = {} ---@type table[] tracked so Reset can push restored values back into them
+    -- tracked so Reset can push the restored values back into them
+    local widgets = {} --[[@as { slider: DNumSlider, store: table, key: string }[] ]]
     ---@param text string
     ---@param min number
     ---@param max number
@@ -382,7 +383,9 @@ function RIG:Open(reveal)
         if enabled then
             function sl:Think() self:SetEnabled(enabled() and true or false) end
         end
-        if store == tuning or store == culling then widgets[#widgets + 1] = { sl, store, key } end
+        if store == tuning or store == culling then
+            widgets[#widgets + 1] = { slider = sl, store = store, key = key }
+        end
     end
     ---@param text string
     ---@param key string
@@ -410,8 +413,12 @@ function RIG:Open(reveal)
     self.list = list
     list:Dock(TOP) list:DockMargin(6, 2, 6, 0) list:SetTall(120) list:SetMultiSelect(false)
     list:AddColumn("sound")
-    list:AddColumn("where from"):SetFixedWidth(130)
-    list:AddColumn("level"):SetFixedWidth(60)
+    -- glua_ls 1.1.1: AddColumn is annotated `@return Panel` though its own doc text names the
+    -- DListView_Column it actually hands back, so SetFixedWidth is invisible without the cast.
+    local col_source = list:AddColumn("where from") --[[@as DListView_Column]]
+    local col_level = list:AddColumn("level") --[[@as DListView_Column]]
+    col_source:SetFixedWidth(130)
+    col_level:SetFixedWidth(60)
     ---@param id number
     function list:OnRowSelected(id) RIG.focus = RIG.rows[id] end
     function list:Think() RIG:RefreshList() end
@@ -655,9 +662,8 @@ delay     = %.0f,   -- seconds below the floor before parking
     button("RESET TO DEFAULTS", function()
         for k, v in pairs(Doors.SoundTuningDefaults) do tuning[k] = v end
         for k, v in pairs(Doors.SoundCullingDefaults) do culling[k] = v end
-        for _, entry in ipairs(widgets) do
-            local pnl, store, key = entry[1], entry[2], entry[3]
-            if IsValid(pnl) then pnl:SetValue(store[key]) end
+        for _, w in ipairs(widgets) do
+            if IsValid(w.slider) then w.slider:SetValue(w.store[w.key]) end
         end
     end)
 end

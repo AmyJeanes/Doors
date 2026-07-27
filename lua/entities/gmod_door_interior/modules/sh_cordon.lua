@@ -29,7 +29,6 @@ end)
 
 function ENT:UpdateCordon()
     for _,v in pairs(ents.FindInBox(self:LocalToWorld(self.mins),self:LocalToWorld(self.maxs))) do
-        ---@cast v Entity
         local check=true
         local class=v:GetClass()
         if self.cordonignore[v] or blacklist[class] or self:CallHook("Cordon",class,v)==false then

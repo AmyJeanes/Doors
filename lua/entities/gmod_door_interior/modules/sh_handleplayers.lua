@@ -1,12 +1,30 @@
 -- Handles players inside the interior
 
+---@class gmod_door_interior
+---@field _exitboxtime number?
+---@field _exitboxmin Vector
+---@field _exitboxmax Vector
+---@field _lpiframe integer?
+---@field _lpi boolean
+
 ---@api
 ---@param pos Vector
 ---@return boolean
 function ENT:PositionInside(pos)
-    if self.ExitBox and (pos:WithinAABox(self:LocalToWorld(self.ExitBox.Min),self:LocalToWorld(self.ExitBox.Max))) then
-        return true
-    elseif self.ExitDistance and pos:Distance(self:GetPos()) < self.ExitDistance then
+    if self.ExitBox then
+        -- The interior is effectively static, so the world-space box is
+        -- derived at most once per tick.
+        local now = CurTime()
+        if self._exitboxtime ~= now then
+            self._exitboxtime = now
+            self._exitboxmin = self:LocalToWorld(self.ExitBox.Min)
+            self._exitboxmax = self:LocalToWorld(self.ExitBox.Max)
+        end
+        if pos:WithinAABox(self._exitboxmin, self._exitboxmax) then
+            return true
+        end
+    end
+    if self.ExitDistance and pos:Distance(self:GetPos()) < self.ExitDistance then
         return true
     end
     return false
@@ -62,6 +80,7 @@ end
 ---@api
 ---@param ply Player
 ---@param exiting boolean?
+---@return Vector?
 function ENT:ResolveSafePos(ply, exiting)
     ---@param pos Vector
     local function clear(pos)
@@ -159,7 +178,7 @@ if SERVER then
     
     ENT:AddHook("Think", "handleplayers", function(self)
         if not self._init then return end
-        for _,v in pairs(player.GetAll()) do
+        for _, v in player.Iterator() do
             self:CheckPlayer(v)
         end
     end)
@@ -177,7 +196,8 @@ if SERVER then
                 local hit = util.TraceHull(self:GetStuckTrace(ply)).Entity
                 -- resolve via the shell they're stuck in, so its OWN exit door escapes it (ours may point wrong)
                 local resolver = self
-                if IsValid(hit) then
+                -- the hull can hit anything, so confirm it is a shell before reading through it
+                if IsValid(hit) and hit.DoorExterior then
                     local shellInt = hit.interior
                     if IsValid(shellInt) and shellInt.ResolveSafePos then resolver = shellInt end
                 end
@@ -211,17 +231,28 @@ else
     ---@api
     ---@return boolean
     function ENT:LocalPlayerInside()
+        -- Cache per frame as this is called many times in a single frame.
+        local fc = Doors.FrameNum
+        if self._lpiframe == fc then return self._lpi end
+        self._lpiframe = fc
+        local r = false
         local ply = LocalPlayer()
-        if ply.doori == self then return true end
-        if not self.contains then return false end
-        local box = ply.door
-        for _ = 1, 16 do -- cap against a stale insideof cycle
-            if not IsValid(box) then return false end
-            if self.contains[box] then return true end
-            local int = box.insideof
-            box = IsValid(int) and int.exterior or nil
+        if ply.doori == self then
+            r = true
+        elseif self.contains then
+            local box = ply.door
+            for _ = 1, 16 do -- cap against a stale insideof cycle
+                if not IsValid(box) then break end
+                if self.contains[box] then
+                    r = true
+                    break
+                end
+                local int = box.insideof
+                box = IsValid(int) and int.exterior or nil
+            end
         end
-        return false
+        self._lpi = r
+        return r
     end
 
     ENT:AddHook("ShouldDraw", "handleplayers", function(self)
@@ -336,5 +367,24 @@ if CLIENT then
         if renderingOutOwnDoor(int) or ((not localplyinside or shoulddraw==false) and not drawingportal) then
             return false
         end
+    end)
+
+    -- The occupant's held weapon is a separate entity that can draw before PrePlayerDraw culls the
+    -- body, so hide it for the whole out-our-door render rather than floating alone in the exterior.
+    ENT:AddHook("PreRenderPortal", "hideweapon", function(self, portal)
+        if not (self.portals and portal == self.portals.interior) then return end
+        if IsValid(self.exterior) and IsValid(self.exterior.insideof) then return end
+        local w = LocalPlayer():GetActiveWeapon()
+        if IsValid(w) and not w:GetNoDraw() then
+            w:SetNoDraw(true)
+            self.hiddenweapon = w
+        end
+    end)
+
+    ENT:AddHook("PostRenderPortal", "hideweapon", function(self, portal)
+        if portal ~= self.portals.interior then return end
+        local w = self.hiddenweapon
+        if IsValid(w) then w:SetNoDraw(false) end
+        self.hiddenweapon = nil
     end)
 end
