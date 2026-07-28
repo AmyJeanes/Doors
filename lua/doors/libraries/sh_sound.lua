@@ -240,6 +240,7 @@ end
 ---@field pair string? counterpart key, scoped to owner
 ---@field through_doors number? author's override on the counterpart rule
 ---@field cp_weight number? smoothed counterpart weight, 1 fully audible and 0 fully yielded; nil until first resolved
+---@field cp_hold boolean? hold the level this was at rather than glide to the new one, while it yields to its counterpart
 ---@field base number caller's max volume (the EmitSound volume equivalent)
 ---@field volume number current applied volume
 ---@field ent Entity? source entity for distance falloff (offset applied in its local space)
@@ -810,15 +811,28 @@ local function resolve(handle)
     -- through that opening - but it comes out around 1e-70, and gliding toward -1400 dB drops two orders
     -- of magnitude in the first few frames. Everything past this floor sounds identical anyway.
     gain = math.max(gain, GAIN_FLOOR)
+    -- Resolved before the glide below because which half of a pair this is decides whether it glides at
+    -- all. Smoothed further down, once heal_span is known.
+    local weight, settled = counterpartGain(handle, space, listenerSpace)
+    local inPair = handle.pair ~= nil and settled
     if handle.last_space ~= space or handle.last_listener_space ~= listenerSpace then
         -- Only the listener changing space can be a view cut; a sound that changed space travelled,
         -- whatever the camera was doing.
-        local viewCut = handle.last_space == space
-            and (RealTime() - listenerState.body_changed) > BODY_SETTLE
+        local listenerOnly = handle.last_space == space
+        local viewCut = listenerOnly and (RealTime() - listenerState.body_changed) > BODY_SETTLE
         handle.heal_span = viewCut and VIEW_TRANSITION or moveTransition()
+
+        -- A pair swaps over this same span, and that swap is already a crossfade between two renderings
+        -- of one event - so each member holds the level for the side it belongs to and lets the weight
+        -- do the mixing. Glide them as well and both are dragged down at once, in dB, toward what is
+        -- effectively absence: the one going quiet collapses immediately, the one arriving only turns up
+        -- at the very end, and the silence the crossfade exists to prevent lands back in the middle.
+        -- Measured through a view cut before this: a 15 dB trough halfway across.
+        local yielding = inPair and listenerOnly and weight <= 0
         -- nil on the first resolve, where there is nothing to glide from
-        handle.heal_from = handle.last_gain
+        handle.heal_from = (inPair and listenerOnly and not yielding) and nil or handle.last_gain
         handle.heal_left = handle.heal_from and handle.heal_span or 0
+        handle.cp_hold = yielding
         handle.last_space, handle.last_listener_space = space, listenerSpace
     end
 
@@ -839,7 +853,11 @@ local function resolve(handle)
     -- part of that - the doorway alone, say, with distance still to come - would be holding a number
     -- that legitimately runs into the hundreds, and capping it there would eat the glide.
     local from = handle.heal_from
-    res.applied = (healing > 0 and from) and gain ^ (1 - healing) * from ^ healing or gain
+    if handle.cp_hold and healing > 0 and from then
+        res.applied = from
+    else
+        res.applied = (healing > 0 and from) and gain ^ (1 - healing) * from ^ healing or gain
+    end
     handle.last_gain = res.applied
 
     -- The counterpart weight is kept out of the glide above and smoothed on its own, linearly. That glide
@@ -856,7 +874,6 @@ local function resolve(handle)
     -- first resolves while still alone; seeding from that would set it to full and leave it fading out
     -- audibly as the other appeared. Unseeded it just plays at the weight for the frame, which is what a
     -- sound with no counterpart should do anyway.
-    local weight, settled = counterpartGain(handle, space, listenerSpace)
     if handle.cp_weight ~= nil then
         handle.cp_weight = math.Approach(handle.cp_weight, weight, FrameTime() / handle.heal_span)
     elseif settled then
