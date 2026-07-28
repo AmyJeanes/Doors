@@ -422,6 +422,8 @@ Doors.SoundCullingDefaults = SOUND_CULLING_DEFAULTS ---@type doors_sound_culling
 ---@return number gain
 local function dbToGain(db) return 10 ^ (db / 20) end
 
+local LOG2 = math.log(2)
+
 -- The doorway area at and above which size stops mattering - an opening this big is acoustically just a
 -- gap in the wall. Roughly 128x128: a plain physical size rather than anything drawn from one consumer's
 -- content, since doorways range from a cupboard to thousands of units a side.
@@ -810,7 +812,9 @@ local function resolve(handle)
         -- How many times the doorway would have to double to stop being small. Log-scaled because areas
         -- span orders of magnitude across consumers, and clamped at zero so a large opening is merely
         -- unpenalised rather than credited - this term must never be able to make anything louder.
-        local halvings = math.max(0, math.log(SIZE_NEUTRAL / math.max(area, 1), 2))
+        -- divided rather than math.log(x, 2): the base argument is a 5.2 signature the 32-bit branch's
+        -- LuaJIT ignores, silently answering a natural log there and making this term 31% weak
+        local halvings = math.max(0, math.log(SIZE_NEUTRAL / math.max(area, 1)) / LOG2)
         local dbPer1000 = tuning.falloff * halvings
         local extra = 10 ^ (-(dbPer1000 * d2 / 1000) / 20)
 
