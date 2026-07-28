@@ -239,7 +239,8 @@ end
 ---@field tag string?
 ---@field pair string? counterpart key, scoped to owner
 ---@field through_doors number? author's override on the counterpart rule
----@field cp_weight number? smoothed counterpart weight, 1 fully audible and 0 fully yielded; nil until first resolved
+---@field cp_weight number? smoothed counterpart weight as a power, square-rooted into a volume downstream; 1 fully audible and 0 fully yielded, nil until first resolved
+---@field cp_last number? the weight last settled on while a counterpart existed, held once it ends
 ---@field cp_hold boolean? hold the level this was at rather than glide to the new one, while it yields to its counterpart
 ---@field base number caller's max volume (the EmitSound volume equivalent)
 ---@field volume number current applied volume
@@ -677,7 +678,9 @@ local function rebuildPairIndex()
     pairIndex.frame = FrameNumber()
     local groups = {}
     for _, h in ipairs(Doors.ActiveManagedSounds) do
-        if h.pair ~= nil and IsValid(h.owner) and not h.stopped then
+        -- One the engine is playing is left out: it never resolves, so it has no current space to answer
+        -- with, and the comparison mode it belongs to gives up cross-boundary behaviour by design anyway.
+        if h.pair ~= nil and h.patch == nil and IsValid(h.owner) and not h.stopped then
             local id = tostring(h.owner:EntIndex()) .. "\0" .. h.pair
             local g = groups[id]
             if g then g[#g + 1] = h else groups[id] = { h } end
@@ -706,28 +709,45 @@ local function counterpartGain(handle, space, listenerSpace)
         rebuildPairIndex()
         group = pairIndex.groups[id]
     end
-    if group == nil or #group < 2 then return 1, false end -- no counterpart, or not created yet
-
-    if space == listenerSpace then return 1, true end
-
-    -- Not on the listener's side. Stay audible anyway if no sibling is either, or a listener standing in
-    -- some third space would hear nothing at all: the one out in the open world is the one that can
-    -- still reach them.
-    local anyNear = false
-    ---@type doors_managed_sound?
-    local worldSide = nil
-    for _, h in ipairs(group) do
-        local hs = h.res.space
-        if hs == listenerSpace then
-            anyNear = true
-            break
-        end
-        if hs == nil and worldSide == nil then worldSide = h end
+    if group == nil or #group < 2 then
+        -- A counterpart that has since ended leaves this one holding what it settled at. The far side
+        -- finishing is not a reason for the near side to become audible, and the two renderings are
+        -- rarely the same length - so without this the longer of the pair swells in for the difference.
+        local held = handle.cp_last
+        if held then return held, true end
+        return 1, false -- no counterpart in existence yet: nothing to weigh against
     end
-    if not anyNear and (worldSide == nil or worldSide == handle) then return 1, true end
 
-    -- Suppressed, unless the author declared this sound carries through the doorway anyway.
-    return handle.through_doors or 0, true
+    local weight
+    if space == listenerSpace then
+        weight = 1
+    else
+        -- Not on the listener's side. Stay audible anyway if no sibling is either, or a listener standing
+        -- in some third space would hear nothing at all: the one out in the open world is the one that
+        -- can still reach them.
+        local anyNear = false
+        ---@type doors_managed_sound?
+        local worldSide = nil
+        for _, h in ipairs(group) do
+            local hs = h.res.space
+            if hs == listenerSpace then
+                anyNear = true
+                break
+            end
+            if hs == nil and worldSide == nil then worldSide = h end
+        end
+        if not anyNear and (worldSide == nil or worldSide == handle) then
+            weight = 1
+        else
+            -- Suppressed, unless the author declared this sound carries through the doorway anyway.
+            -- Squared because a weight is a power here, which the square root downstream turns back into
+            -- a volume - and the author's number is a fraction of volume, so it has to arrive as one.
+            local through = handle.through_doors or 0
+            weight = through * through
+        end
+    end
+    handle.cp_last = weight
+    return weight, true
 end
 
 -- Where this sound is heard from this frame and what the boundary between does to it. Computed once per
@@ -742,11 +762,13 @@ local function resolve(handle)
 
     local pos = sourcePos(handle)
     res.emitter, res.pos = pos, pos
-    res.int, res.source, res.listener, res.normal = nil, nil, nil, nil
+    -- space and counterpart reset with the rest: a sibling reads `space` off this table, so leaving last
+    -- frame's behind on the positionless early return below would answer for a place it isn't any more
+    res.int, res.source, res.listener, res.normal, res.space = nil, nil, nil, nil, nil
     res.inside = false
     res.gain, res.d1, res.d2, res.area = 1, 0, 0, 0
     res.openness, res.volume, res.aperture, res.facing, res.directivity = 1, 1, 1, 1, 1
-    res.db_per_1000, res.extra, res.vol_extra = 0, 1, 1
+    res.db_per_1000, res.extra, res.vol_extra, res.counterpart = 0, 1, 1, 1
     res.dist = pos and MainEyePos():Distance(pos) or 0
     if not pos then
         res.applied, res.healing = 1, 0
