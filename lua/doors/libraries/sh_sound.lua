@@ -70,8 +70,12 @@ if SERVER then
     function Doors:PlaySound(opts)
         -- The engine broadcasts a plain positioned sound by itself, so only send our own message when a
         -- client has to run it: the BASS channel lives client-side, and an interface sound has no
-        -- position for the engine to carry. Fire-and-forget - no handle comes back; stop by group.
-        if not (opts.resumable or (opts.ent == nil and opts.pos == nil)) then
+        -- position for the engine to carry. A loop counts too, for the same reason it does client-side.
+        --
+        -- Fire-and-forget - no handle comes back, so a sound started from here is stopped by group
+        -- rather than polled and re-armed. Everything the client half needs to build it goes across;
+        -- silently dropping an opt here would leave the caller's sound quietly not doing what it says.
+        if not (opts.resumable or opts.loop or (opts.ent == nil and opts.pos == nil)) then
             playNative(opts)
             return
         end
@@ -91,6 +95,15 @@ if SERVER then
         net.WriteBool(opts.level ~= nil)
         if opts.level then net.WriteUInt(opts.level, 8) end
         net.WriteBool(opts.resumable == true)
+        net.WriteBool(opts.loop == true)
+        net.WriteString(opts.pair or "")
+        net.WriteBool(opts.through_doors ~= nil)
+        if opts.through_doors then net.WriteFloat(opts.through_doors) end
+        net.WriteBool(opts.pin_on_jump ~= nil)
+        if opts.pin_on_jump then net.WriteFloat(opts.pin_on_jump) end
+        net.WriteEntity(opts.attach or NULL)
+        net.WriteBool(opts.attach_dist ~= nil)
+        if opts.attach_dist then net.WriteFloat(opts.attach_dist) end
         net.Broadcast()
     end
 
@@ -1500,6 +1513,12 @@ net.Receive("Doors-Sound", function()
     local offset = net.ReadBool() and net.ReadVector() or nil
     local level = net.ReadBool() and net.ReadUInt(8) or nil
     local resumable = net.ReadBool()
+    local loop = net.ReadBool()
+    local pair = net.ReadString()
+    local through_doors = net.ReadBool() and net.ReadFloat() or nil
+    local pin_on_jump = net.ReadBool() and net.ReadFloat() or nil
+    local attach = net.ReadEntity()
+    local attach_dist = net.ReadBool() and net.ReadFloat() or nil
     Doors:PlaySound({
         path = path,
         owner = IsValid(owner) and owner or nil,
@@ -1510,6 +1529,12 @@ net.Receive("Doors-Sound", function()
         offset = offset,
         level = level,
         resumable = resumable,
+        loop = loop,
+        pair = pair ~= "" and pair or nil,
+        through_doors = through_doors,
+        pin_on_jump = pin_on_jump,
+        attach = IsValid(attach) and attach or nil,
+        attach_dist = attach_dist,
     })
 end)
 
