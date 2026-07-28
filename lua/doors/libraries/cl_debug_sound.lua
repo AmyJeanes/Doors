@@ -161,6 +161,9 @@ function RIG:Play()
     self.snd = Doors:PlaySound({
         path = sample.path, ent = ent, offset = ent:OBBCenter(), loop = true,
         volume = self.cfg.volume, level = self.cfg.level,
+        -- owned, so the entity going takes it with it and a group stop can still reach a loop the rig
+        -- has lost its own handle to
+        owner = ent, tag = "debug",
     })
     self.focus = self.snd
 end
@@ -214,6 +217,11 @@ function RIG:RefreshList()
 end
 
 local function think()
+    -- Panel:Remove never calls OnClose, and the context menu this sits in is rebuilt from under it by a
+    -- spawnmenu reload or a language change - so the rig watches for its own frame going rather than
+    -- waiting to be told, which covers every way it can go, the close button included.
+    if not IsValid(RIG.frame) then return RIG:Close() end
+
     local ok, err = pcall(function()
         local focus = RIG.focus
         -- a sound that finished is dropped from the active list without being stopped
@@ -311,13 +319,15 @@ end
 -- Panel
 --------------------------------------------------------------------------------------------------
 
+-- Hooks first: everything below can raise, and a Think that errors before unregistering itself raises
+-- again every frame after, which is unrecoverable from anywhere but the console.
 function RIG:Close()
+    hook.Remove("Think", "doors_debug_sound")
+    hook.Remove("PostDrawTranslucentRenderables", "doors_debug_sound")
     self:Stop()
     self:ReleaseDoor()
     self:ReleaseCrossVolume()
     self.focus = nil
-    hook.Remove("Think", "doors_debug_sound")
-    hook.Remove("PostDrawTranslucentRenderables", "doors_debug_sound")
     if IsValid(self.frame) then self.frame:Remove() end
     self.frame = nil
     self.list = nil
@@ -352,7 +362,6 @@ function RIG:Open(reveal)
     else
         f:MakePopup()
     end
-    function f:OnClose() RIG:Close() end
 
     hook.Add("Think", "doors_debug_sound", think)
     hook.Add("PostDrawTranslucentRenderables", "doors_debug_sound", draw3d)
