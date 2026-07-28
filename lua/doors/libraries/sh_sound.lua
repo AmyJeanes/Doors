@@ -36,7 +36,7 @@
 ---@field pair string? marks this as one side of a sound authored twice, once per side of a boundary - the interior's own version of a sound the exterior also has. Only the side the listener is on is audible, and crossing fades between them. Scoped to `owner`, so two doors playing the same pair key never fuse. Deliberately not `tag`: that stops sounds at a coarser granularity than this blends them
 ---@field through_doors number? how much of this sound carries across the boundary anyway, 0-1, overriding what `pair` would otherwise do. Set it where the two sides are genuinely different sounds rather than one sound heard twice, so both should be audible together
 ---@field pin_on_jump number? resumable only, with ent: the sound pins where the entity vanished from once it moves faster than this (units/second) - a teleporting emitter leaves its tail behind, e.g. the demat echo a bystander hears. A speed, not a distance: interpolation renders a client-side teleport as a short impossibly-fast slide, never a single-frame jump
----@field attach Entity? resumable only, with pos: entity that takes over as the source once it arrives within attach_dist of pos (e.g. the exterior landing on its materialise point)
+---@field attach Entity? resumable only, with pos: entity that takes over as the source once it arrives within attach_dist of pos (e.g. the exterior landing on its materialise point). An entity already that close when the sound starts takes over at once - it is asked where it is, not where it has been - so a caller marking a spot the entity has yet to leave should withhold this until it has
 ---@field attach_dist number? resumable only: arrival distance for attach, default 500
 
 -- The engine's own sound, positioned like the caller asked. Shared by both realms: played on the server
@@ -336,6 +336,13 @@ end
 ---@param handle doors_managed_sound
 ---@return Vector?
 local function sourcePos(handle)
+    local attach = handle.attach
+    if attach ~= nil and handle.pos and not IsValid(handle.ent) and IsValid(attach)
+        and attach:GetPos():DistToSqr(handle.pos) <= handle.attach_dist * handle.attach_dist then
+        -- it takes the source over outright, so the fixed point stops being the fallback: if the entity
+        -- goes invalid later the tail belongs where it vanished, not back where the two met
+        handle.ent, handle.attach, handle.pos = attach, nil, nil
+    end
     local ent = handle.ent
     if IsValid(ent) then
         local pos = handle.offset and ent:LocalToWorld(handle.offset) or ent:GetPos()
@@ -348,12 +355,6 @@ local function sourcePos(handle)
         end
         handle.last_pos = pos
         return pos
-    end
-    local attach = handle.attach
-    if attach ~= nil and handle.pos and IsValid(attach)
-        and attach:GetPos():DistToSqr(handle.pos) <= handle.attach_dist * handle.attach_dist then
-        handle.ent = attach
-        handle.attach = nil
     end
     return handle.pos or handle.last_pos
 end
@@ -1695,9 +1696,15 @@ hook.Add("Think", "doors_managed_sounds", function()
             handle.clock = handle.clock + FrameTime() * handle.rate
             local chan = handle.chan
             if chan == nil then
-                -- parked: no channel, but keep watching for the wake or the one-shot running out. A
-                -- handle still loading is also channel-less; it is left alone until its load resolves.
-                if handle.parked then parkThink(handle) end
+                -- Parked: no channel, but keep watching for the wake or the one-shot running out. A
+                -- handle still loading is channel-less too, and has to keep resolving through it - the
+                -- position it tracks feeds a paired sibling's space and the jump test's per-frame budget,
+                -- and both answer nonsense from a position last taken several frames ago.
+                if handle.parked then
+                    parkThink(handle)
+                elseif handle.loading then
+                    resolve(handle)
+                end
             elseif not IsValid(chan) or chan:GetState() == GMOD_CHANNEL_STOPPED then
                 drop(handle)
             else
