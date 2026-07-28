@@ -1199,6 +1199,15 @@ local function applyGain(handle)
     end
 end
 
+-- Both channels take the rate. An intro and the loop it is handing over to are audible together for the
+-- whole crossfade, so rating only the incoming one leaves the two detuned against each other.
+---@param handle doors_managed_sound
+local function applyRate(handle)
+    local rate = handle.rate
+    if IsValid(handle.chan) then handle.chan:SetPlaybackRate(rate) end
+    if IsValid(handle.intro) then handle.intro:SetPlaybackRate(rate) end
+end
+
 -- "has a channel", which a handle does not for the frame or two its load is in flight. So don't gate
 -- per-frame updates to a handle on this: they would all be skipped until the channel already exists,
 -- leaving it to start at whatever the volume was when it was created and jump on the next frame.
@@ -1277,6 +1286,8 @@ end
 ---@param pitch number percent, 100 = the file's own pitch
 ---@param ease number? seconds to glide over; omitted or 0 applies it immediately
 function MANAGED:SetPitch(pitch, ease)
+    -- floored ahead of the split so both paths answer a zero alike: a rate of zero is not a slow sound
+    pitch = math.max(pitch, 1)
     local patch = self.patch
     if patch then
         -- a CSoundPatch eases a pitch change itself, so hand the glide straight to it
@@ -1293,9 +1304,7 @@ function MANAGED:SetPitch(pitch, ease)
     end
     self.rate_to, self.rate_ease = nil, nil
     self.rate = rate
-    if IsValid(self.chan) then
-        self.chan:SetPlaybackRate(rate)
-    end
+    applyRate(self)
 end
 
 function MANAGED:Stop()
@@ -1537,8 +1546,7 @@ end
 -- speed plus doppler, both jittery) doesn't arrive as steps. Exponential, so it closes most of the gap
 -- within the requested time and settles without overshoot.
 ---@param handle doors_managed_sound
----@param chan IGModAudioChannel
-local function stepRate(handle, chan)
+local function stepRate(handle)
     local target = handle.rate_to
     if not target then return end
     local ease = handle.rate_ease or 0.1
@@ -1547,7 +1555,7 @@ local function stepRate(handle, chan)
         handle.rate = target
         handle.rate_to = nil
     end
-    chan:SetPlaybackRate(handle.rate)
+    applyRate(handle)
 end
 
 -- Play the intro in, then hand over to the looping body. Both channels are already loaded, so the body
@@ -1721,7 +1729,7 @@ hook.Add("Think", "doors_managed_sounds", function()
             else
                 stepFade(handle)
                 if not handle.stopped then -- a fade can end in a stop, which drops the handle
-                    stepRate(handle, chan)
+                    stepRate(handle)
                     applyGain(handle)
                     parkCheck(handle)
                 end
