@@ -656,31 +656,42 @@ local pairIndex = { frame = -1, groups = {} } ---@type doors_sound_pair_index
 -- distinction between a move and a view cut.
 --
 -- Reads only its siblings' `space`, never their resolution, so nothing here can re-enter resolve().
+local function rebuildPairIndex()
+    pairIndex.frame = FrameNumber()
+    local groups = {}
+    for _, h in ipairs(Doors.ActiveManagedSounds) do
+        if h.pair ~= nil and IsValid(h.owner) and not h.stopped then
+            local id = tostring(h.owner:EntIndex()) .. "\0" .. h.pair
+            local g = groups[id]
+            if g then g[#g + 1] = h else groups[id] = { h } end
+        end
+    end
+    pairIndex.groups = groups
+end
+
+-- The second return says whether the answer is final. It is false only while a pair is half-built, which
+-- the caller uses to hold off seeding the weight - see there for why that matters.
 ---@param handle doors_managed_sound
 ---@param space gmod_door_interior?
 ---@param listenerSpace gmod_door_interior?
----@return number
+---@return number, boolean
 local function counterpartGain(handle, space, listenerSpace)
     local key = handle.pair
-    if key == nil or not IsValid(handle.owner) then return 1 end
+    if key == nil or not IsValid(handle.owner) then return 1, true end
 
-    if pairIndex.frame ~= FrameNumber() then
-        pairIndex.frame = FrameNumber()
-        local groups = {}
-        for _, h in ipairs(Doors.ActiveManagedSounds) do
-            if h.pair ~= nil and IsValid(h.owner) and not h.stopped then
-                local id = tostring(h.owner:EntIndex()) .. "\0" .. h.pair
-                local g = groups[id]
-                if g then g[#g + 1] = h else groups[id] = { h } end
-            end
-        end
-        pairIndex.groups = groups
+    if pairIndex.frame ~= FrameNumber() then rebuildPairIndex() end
+
+    local id = tostring(handle.owner:EntIndex()) .. "\0" .. key
+    local group = pairIndex.groups[id]
+    -- Missing from your own group means the index predates you: both members of a pair are created back
+    -- to back, and creating one resolves it, so the index can be built a moment before the other exists.
+    if group == nil or not table.HasValue(group, handle) then
+        rebuildPairIndex()
+        group = pairIndex.groups[id]
     end
+    if group == nil or #group < 2 then return 1, false end -- no counterpart, or not created yet
 
-    local group = pairIndex.groups[tostring(handle.owner:EntIndex()) .. "\0" .. key]
-    if group == nil or #group < 2 then return 1 end -- nothing to double against
-
-    if space == listenerSpace then return 1 end
+    if space == listenerSpace then return 1, true end
 
     -- Not on the listener's side. Stay audible anyway if no sibling is either, or a listener standing in
     -- some third space would hear nothing at all: the one out in the open world is the one that can
@@ -696,10 +707,10 @@ local function counterpartGain(handle, space, listenerSpace)
         end
         if hs == nil and worldSide == nil then worldSide = h end
     end
-    if not anyNear and (worldSide == nil or worldSide == handle) then return 1 end
+    if not anyNear and (worldSide == nil or worldSide == handle) then return 1, true end
 
     -- Suppressed, unless the author declared this sound carries through the doorway anyway.
-    return handle.through_doors or 0
+    return handle.through_doors or 0, true
 end
 
 -- Where this sound is heard from this frame and what the boundary between does to it. Computed once per
@@ -835,14 +846,18 @@ local function resolve(handle)
     -- Square-rooted so the pair holds constant power across the swap. Two loops that are not copies of
     -- each other sum by power rather than amplitude, so weights that cross linearly would dip in the
     -- middle - audible here, because sounding like one continuous thing is the entire point.
-    local weight = counterpartGain(handle, space, listenerSpace)
-    if handle.cp_weight == nil then
-        -- a sound starting on the far side starts yielded, rather than blipping on its first frame
-        handle.cp_weight = weight
-    else
+    -- A sound starting on the far side starts yielded rather than blipping on its first frame - but only
+    -- once its counterpart exists to yield to. The two are created back to back, so whichever is made
+    -- first resolves while still alone; seeding from that would set it to full and leave it fading out
+    -- audibly as the other appeared. Unseeded it just plays at the weight for the frame, which is what a
+    -- sound with no counterpart should do anyway.
+    local weight, settled = counterpartGain(handle, space, listenerSpace)
+    if handle.cp_weight ~= nil then
         handle.cp_weight = math.Approach(handle.cp_weight, weight, FrameTime() / handle.heal_span)
+    elseif settled then
+        handle.cp_weight = weight
     end
-    res.counterpart = math.sqrt(handle.cp_weight)
+    res.counterpart = math.sqrt(handle.cp_weight or weight)
     res.applied = res.applied * res.counterpart
     return res
 end
