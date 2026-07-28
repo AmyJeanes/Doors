@@ -197,19 +197,26 @@ local function loopBodyFile(path, from)
     local key = "doors_loopcache/" .. util.CRC(path .. "_" .. src) .. ".wav"
     if file.Exists(key, "DATA") then return key end
 
+    -- Validated like the header parser does, and every read bounded: a truncated or half-mounted file
+    -- otherwise walks off the end, where string.byte gives nil and the arithmetic raises inside a Think.
+    if #src < 16 or src:sub(1, 4) ~= "RIFF" or src:sub(9, 12) ~= "WAVE" then return nil end
+
     ---@param o number
     ---@return number
     local function u(o) return src:byte(o) + src:byte(o+1)*256 + src:byte(o+2)*65536 + src:byte(o+3)*16777216 end
     local pos, fmtChunk, dataOff, dataLen, rate, channels, bits = 13, nil, nil, nil, 0, 0, 0
     while pos + 8 <= #src do
         local id, size = src:sub(pos, pos + 3), u(pos + 4)
-        if id == "fmt " then
-            fmtChunk = src:sub(pos, pos + 8 + size - 1)
+        local last = pos + 8 + size - 1 -- final byte of this chunk
+        if id == "fmt " and size >= 16 and last <= #src then
+            fmtChunk = src:sub(pos, last)
             channels = src:byte(pos + 10) + src:byte(pos + 11) * 256
             rate = u(pos + 12)
             bits = src:byte(pos + 22) + src:byte(pos + 23) * 256
         elseif id == "data" then
-            dataOff, dataLen = pos + 8, size
+            -- clamped to what is present, so a length field overrunning the file can't describe a body
+            -- that isn't there
+            dataOff, dataLen = pos + 8, math.min(size, #src - pos - 7)
         end
         pos = pos + 8 + size + (size % 2)
     end
