@@ -111,6 +111,9 @@ The stuck-trace filter is built in `GetStuckTrace` from `{ply}` plus a shared `S
 - `lua/doors/sh_owner.lua` (`Doors:SetupOwner`) sets `Creator` (with a client-side polyfill) and `CPPISetOwner` if Falco's CPPI is loaded; fires the `SetupOwner` hook (so a consumer can recurse owner setup into its own sub-entities) and recurses into `ent.interior`. Always use this rather than setting owner directly so prop-protection and the client-visible creator stay consistent.
 - `lua/doors/libraries/libraries/sh_von.lua` is a vendored copy of vON 1.3.4 (table serialization) — leave it alone unless syncing with upstream Vercas/vON.
 - Both base entities pick `base_wire_entity` if `WireLib` is loaded, otherwise `base_gmodentity`. The client `Draw` calls `Wire_Render(self)` only when WireLib exists.
+- `lua/doors/libraries/sh_sound.lua` is the managed-sound hub (BASS channels that survive the listener crossing the interior void, plus the cross-boundary resolver). Two things about it are worth knowing before you test a change:
+  - **`CSoundPatch:IsPlaying()` answers for the patch's own play/stop flag, not for the audio.** A finished one-shot reports `true` indefinitely — measured, a 0.02s file still reported playing three seconds later — and only an explicit `Stop()` clears it. So liveness for an engine-mode handle can't be read from it alone; see `patchFinished`, which times one-shots out against their own length instead.
+  - **The intro → loop-body handover is not exercised by any shipped content.** It only engages for a `.wav` whose loop marker sits past `HANDOVER`, and none of the sounds these addons ship carry one (checked: 0 of 219). To test that path, assign a handle's `intro` / `body` by hand rather than hunting for an asset that triggers it.
 
 ## Conventions when adding code
 
