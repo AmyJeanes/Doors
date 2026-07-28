@@ -1027,7 +1027,11 @@ local function spatialize(pos, radius)
     local dist = dir:Length()
     if dist < 1 then return 0.9, 0.9 end
     local ang = dir:Angle()
-    local right = EyeAngles():Right()
+    -- MainEyeAngles for the same reason as MainEyePos above - this runs from Think, where EyeAngles() is
+    -- the last render pass's, and a doorway on screen makes that the portal's virtual camera. Measured in
+    -- the outside view with a portal in shot: 65 degrees of yaw out, which swings the stereo image well
+    -- off to one side.
+    local right = MainEyeAngles():Right()
     local yaw = (ang.yaw - Vector(right.x, right.y, 0):Angle().yaw) % 360
     -- pitch (folded to 0-90 above/below horizontal) collapses toward mono past 45 degrees
     local pitch = ang.pitch

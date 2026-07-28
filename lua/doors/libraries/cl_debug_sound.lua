@@ -294,9 +294,11 @@ local function draw3d(_, skybox)
         -- The label rides in the world rather than on the HUD so it travels with the marker through a
         -- doorway; a screen projection is computed against the main view, so it would vanish exactly
         -- when the sound it belongs to is only visible through one.
+        -- EyePos/EyeAngles, not the Main pair: this draws inside every pass including a portal's, and
+        -- the label has to face and scale to whichever camera is rendering it.
         local face = Angle(0, EyeAngles().y - 90, 90)
         cam.Start3D2D(emitter + Vector(0, 0, 64), face,
-            math.Clamp(MainEyePos():Distance(emitter) / 3000, 0.06, 0.6))
+            math.Clamp(EyePos():Distance(emitter) / 3000, 0.06, 0.6))
             draw.SimpleText(string.format("%.1f dB", toDb(h.volume)), "DermaLarge", 0, 0,
                 Color(255, 220, 120), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
             draw.SimpleText(string.format("%.0fu along the path", res.dist), "DermaDefaultBold", 0, 26,
