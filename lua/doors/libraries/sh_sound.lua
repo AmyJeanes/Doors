@@ -862,8 +862,13 @@ local function resolve(handle)
         -- at the very end, and the silence the crossfade exists to prevent lands back in the middle.
         -- Measured through a view cut before this: a 15 dB trough halfway across.
         local yielding = inPair and listenerOnly and weight <= 0
-        -- nil on the first resolve, where there is nothing to glide from
-        handle.heal_from = (inPair and listenerOnly and not yielding) and nil or handle.last_gain
+        -- Spelt out: an `and nil or` cannot express this, since `x and nil` is already false and the
+        -- fallback would win every time, leaving the arriving half gliding after all.
+        if inPair and listenerOnly and not yielding then
+            handle.heal_from = nil
+        else
+            handle.heal_from = handle.last_gain -- nil on the first resolve, nothing to glide from
+        end
         handle.heal_left = handle.heal_from and handle.heal_span or 0
         handle.cp_hold = yielding
         handle.last_space, handle.last_listener_space = space, listenerSpace
