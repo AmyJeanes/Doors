@@ -134,7 +134,7 @@ local function findInterior()
     local best, bestd
     for int in pairs(Doors:GetInteriors()) do
         if IsValid(int) and IsValid(int.exterior) then
-            local d = EyePos():DistToSqr(int.exterior:GetPos())
+            local d = MainEyePos():DistToSqr(int.exterior:GetPos())
             if not bestd or d < bestd then best, bestd = int, d end
         end
     end
@@ -296,7 +296,7 @@ local function draw3d(_, skybox)
         -- when the sound it belongs to is only visible through one.
         local face = Angle(0, EyeAngles().y - 90, 90)
         cam.Start3D2D(emitter + Vector(0, 0, 64), face,
-            math.Clamp(EyePos():Distance(emitter) / 3000, 0.06, 0.6))
+            math.Clamp(MainEyePos():Distance(emitter) / 3000, 0.06, 0.6))
             draw.SimpleText(string.format("%.1f dB", toDb(h.volume)), "DermaLarge", 0, 0,
                 Color(255, 220, 120), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
             draw.SimpleText(string.format("%.0fu along the path", res.dist), "DermaDefaultBold", 0, 26,

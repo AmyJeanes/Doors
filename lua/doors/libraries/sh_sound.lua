@@ -509,10 +509,15 @@ local BODY_SETTLE = 0.25
 
 local listenerState = { frame = -1, body_changed = -math.huge } ---@type doors_listener_state
 
--- Which space the listener is in - the camera, not the body. Every other term is measured from EyePos(),
--- and a view mode can put the two in different spaces: a consumer's outside view can anchor the camera to
--- the exterior while the player still stands in the interior, which would otherwise measure distance from
--- one place while classifying the listener in another. Source's own listener follows the view too.
+-- Which space the listener is in - the camera, not the body. Every other term is measured from the same
+-- eye, and a view mode can put the two in different spaces: a consumer's outside view can anchor the
+-- camera to the exterior while the player still stands in the interior, which would otherwise measure
+-- distance from one place while classifying the listener in another. Source's own listener follows the
+-- view too.
+--
+-- `MainEyePos()`, never `EyePos()`: the latter is only meaningful inside a render pass, and everything
+-- here runs from Think. Walking out of an interior freezes it at the position you left from - measured
+-- 14845 units adrift, with the listener stuck in the interior while the player stood outside.
 --
 -- Resolved once per frame for the whole mix rather than per handle, since every sound shares it.
 ---@return gmod_door_interior?
@@ -520,7 +525,7 @@ local function getListenerSpace()
     local ply = LocalPlayer()
     local body = IsValid(ply) and ply.doori or nil
     if body ~= nil and not IsValid(body) then body = nil end
-    local eye = EyePos()
+    local eye = MainEyePos()
 
     -- Cached for the frame, but only while the camera and body it was measured from still hold. Both
     -- can move part-way through a frame - crossing a doorway teleports the camera between two of these
@@ -730,7 +735,7 @@ local function resolve(handle)
     res.gain, res.d1, res.d2, res.area = 1, 0, 0, 0
     res.openness, res.volume, res.aperture, res.facing, res.directivity = 1, 1, 1, 1, 1
     res.db_per_1000, res.extra, res.vol_extra = 0, 1, 1
-    res.dist = pos and EyePos():Distance(pos) or 0
+    res.dist = pos and MainEyePos():Distance(pos) or 0
     if not pos then
         res.applied, res.healing = 1, 0
         return res
@@ -752,9 +757,9 @@ local function resolve(handle)
         local inside = int ~= space
         local source = inside and extFace or intFace
         local listener = inside and intFace or extFace
-        local mouth = mouthPoint(listener.ent, listener.portal, EyePos())
+        local mouth = mouthPoint(listener.ent, listener.portal, MainEyePos())
         local d1 = pos:Distance(mouthPoint(source.ent, source.portal, pos))
-        local d2 = EyePos():Distance(mouth)
+        local d2 = MainEyePos():Distance(mouth)
 
         local tuning = Doors.SoundTuning
         local open = openness(int)
@@ -771,7 +776,7 @@ local function resolve(handle)
         -- least directional thing there is. At the mouth itself the direction is meaningless, so it is
         -- pinned to 1 there rather than left to normalise a nearly-zero vector.
         local normal = mouthNormal(listener.ent, listener.portal)
-        local facing = d2 > 1 and normal:Dot((EyePos() - mouth):GetNormalized()) or 1
+        local facing = d2 > 1 and normal:Dot((MainEyePos() - mouth):GetNormalized()) or 1
         local directivity = 1 - tuning.aim * 0.5 * (1 - facing)
 
         res.int, res.inside = int, inside
@@ -1001,7 +1006,7 @@ end
 ---@return number lf
 ---@return number rf
 local function spatialize(pos, radius)
-    local dir = pos - EyePos()
+    local dir = pos - MainEyePos()
     local dist = dir:Length()
     if dist < 1 then return 0.9, 0.9 end
     local ang = dir:Angle()
@@ -1047,7 +1052,7 @@ local function ignoreEntities() return false end
 ---@param pos Vector
 ---@return number
 local function occlusion(handle, pos)
-    local blocked = util.TraceLine({ start = EyePos(), endpos = pos, mask = MASK_BLOCK_AUDIO, filter = ignoreEntities }).Hit
+    local blocked = util.TraceLine({ start = MainEyePos(), endpos = pos, mask = MASK_BLOCK_AUDIO, filter = ignoreEntities }).Hit
     local target = blocked and (snd_obscured and 10 ^ (snd_obscured:GetFloat() / 20) or 0.73) or 1
     if handle.occ == nil then
         handle.occ = target
