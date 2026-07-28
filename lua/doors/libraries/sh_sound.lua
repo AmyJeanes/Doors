@@ -297,9 +297,20 @@ local RETRY_COOLDOWN = 5
 -- bury the console. One line names the file that is actually broken, which is what a diagnosis needs.
 local warnedPaths = {}
 
+-- Out of service: free every channel and delist. Marking it stopped is what makes a load still in flight
+-- free its own channel on arrival instead of attaching it to a handle nothing can reach.
 ---@param handle doors_managed_sound
 local function drop(handle)
-    handle.chan = nil
+    handle.stopped = true
+    if handle.patch then
+        handle.patch:Stop()
+        handle.patch = nil
+    end
+    if IsValid(handle.chan) then handle.chan:Stop() end
+    -- an intro still handing over to its loop goes too, as does a body loaded and waiting for one
+    if IsValid(handle.intro) then handle.intro:Stop() end
+    if IsValid(handle.body) then handle.body:Stop() end
+    handle.chan, handle.intro, handle.body, handle.xfade = nil, nil, nil, nil
     table.RemoveByValue(Doors.ActiveManagedSounds, handle)
 end
 
@@ -1176,12 +1187,14 @@ end
 -- A channel that was playing and got stopped sets no cooldown, so it comes back at once.
 ---@return boolean
 function MANAGED:IsAlive()
+    -- Tested ahead of `stopped`, because dropping a handle sets both: a failed load has to keep reading
+    -- alive through its cooldown, or the owner remakes it every frame.
+    if self.retry_after ~= nil and RealTime() < self.retry_after then return true end
     if self.stopped then return false end
     -- virtualised: the channel is freed but the handle is deliberately kept, so the owner must not remake it
     if self.parked then return true end
     if self.loading then return true end
-    if self:IsValid() then return true end
-    return self.retry_after ~= nil and RealTime() < self.retry_after
+    return self:IsValid()
 end
 
 -- BASS has a slide of its own, but GMod doesn't expose it, so a fade is run from the Think loop below -
@@ -1229,9 +1242,11 @@ function MANAGED:SetPitch(pitch, ease)
     if patch then
         -- a CSoundPatch eases a pitch change itself, so hand the glide straight to it
         patch:ChangePitch(pitch, ease or 0)
+        -- recorded even so: a one-shot on this path ends by its own length, and resampling changes it
+        self.rate = pitch / 100
         return
     end
-    local rate = math.max(pitch, 1) / 100
+    local rate = pitch / 100
     if ease and ease > 0 then
         self.rate_to = rate
         self.rate_ease = ease
@@ -1245,22 +1260,6 @@ function MANAGED:SetPitch(pitch, ease)
 end
 
 function MANAGED:Stop()
-    self.stopped = true
-    local patch = self.patch
-    if patch then
-        patch:Stop()
-        self.patch = nil
-        drop(self)
-        return
-    end
-    if IsValid(self.chan) then
-        self.chan:Stop()
-    end
-    -- an intro still handing over to its loop has to go too
-    if IsValid(self.intro) then
-        self.intro:Stop()
-    end
-    self.intro = nil
     drop(self)
 end
 
@@ -1619,6 +1618,26 @@ local function parkCheck(handle)
     end
 end
 
+-- Whether the engine is done with a CSoundPatch. IsPlaying answers for the patch's own play/stop flag
+-- rather than for the audio - measured, a 0.02s one-shot still reported playing three seconds later - so
+-- a one-shot is timed out against its own length instead, and IsPlaying is left to catch what it does
+-- answer for: stopped from outside. A length the engine won't give us means never dropping it, which is
+-- the safe direction to be wrong in - dropping stops the patch, so a premature one would cut it off.
+---@param handle doors_managed_sound
+---@param patch CSoundPatch
+---@return boolean
+local function patchFinished(handle, patch)
+    if not patch:IsPlaying() then return true end
+    if handle.loop then return false end
+    local dur = handle.duration
+    if dur == nil then
+        dur = SoundDuration(handle.path)
+        if dur <= 0 then return false end
+        handle.duration = dur
+    end
+    return handle.clock >= dur
+end
+
 hook.Add("Think", "doors_managed_sounds", function()
     last_think_frame = FrameNumber()
     local list = Doors.ActiveManagedSounds
@@ -1631,7 +1650,17 @@ hook.Add("Think", "doors_managed_sounds", function()
             -- the engine owns everything about this one except the caller's own volume, so only the
             -- fade still needs running - and it feeds the same pre-distance value ChangeVolume takes
             stepFade(handle)
-            if not handle.stopped then handle.patch:ChangeVolume(handle.base, 0) end
+            local patch = handle.patch
+            if patch and not handle.stopped then -- a fade can end in a stop, which drops the handle
+                handle.clock = handle.clock + FrameTime() * handle.rate
+                if patchFinished(handle, patch) then
+                    -- dropped like a managed channel that stopped, so a one-shot stops being ticked
+                    -- forever and an owner polling IsAlive sees a finished loop die and remakes it
+                    drop(handle)
+                else
+                    patch:ChangeVolume(handle.base, 0)
+                end
+            end
         else
             stepHandover(handle)
             -- The logical clock advances on game time - frozen during a pause, since Think does not run
