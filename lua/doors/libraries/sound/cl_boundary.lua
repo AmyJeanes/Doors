@@ -50,15 +50,6 @@ Sound.transition_floor = TRANSITION_FLOOR
 
 local VIEW_TRANSITION = 0.15
 
-local transitionConVar = CreateClientConVar("doors_sound_transition", "0", false, false,
-    "Seconds a sound takes to settle after the listener moves between spaces, or 0 for the default")
-
----@return number
-local function moveTransition()
-    local v = transitionConVar:GetFloat()
-    return v > 0 and v or TRANSITION_FLOOR
-end
-
 local GAIN_FLOOR = 1e-5
 
 --------------------------------------------------------------------------------------------------
@@ -402,7 +393,7 @@ local function resolve(handle)
     if handle.last_space ~= space or handle.last_listener_space ~= listenerSpace then
         local listenerOnly = handle.last_space == space
         local viewCut = listenerOnly and (RealTime() - listenerState.body_changed) > BODY_SETTLE
-        handle.heal_span = viewCut and VIEW_TRANSITION or moveTransition()
+        handle.heal_span = viewCut and VIEW_TRANSITION or TRANSITION_FLOOR
 
         local yielding = inPair and listenerOnly and weight <= 0
         -- spelt out because an `and nil or` cannot express it: `x and nil` is already false
