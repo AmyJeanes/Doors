@@ -52,12 +52,8 @@ if SERVER then
         if self.portals then
             net.WriteEntity(self.portals.exterior)
             net.WriteEntity(self.portals.interior)
-            -- The doorway descriptors themselves, not just the portals built from them. Consumers set
-            -- `Portal` server-side, because that is where we need it to build those portals - so
-            -- without this the client has no idea where either doorway is, and everything reasoning
-            -- about the boundary there would have to ask each consumer separately.
-            -- asked for, not read off the field, so a consumer whose doorway changes sends the one it
-            -- has now rather than the one it was built with
+            -- Asked for through GetDoorway rather than read off `Portal`, so a consumer whose doorway
+            -- changes sends the one it has now rather than the one it was built with.
             writeDoorway(self:GetDoorway())
             writeDoorway(self.exterior:GetDoorway())
             if self.customportals then
