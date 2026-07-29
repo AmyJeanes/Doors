@@ -23,8 +23,6 @@
 ---@field exterior linked_portal_door
 ---@field interior linked_portal_door
 
--- Just the geometry of a doorway - where it is, which way it faces, how big the opening is. Enough
--- to reason about the boundary; the rest of a portal descriptor is only needed where portals are built.
 ---@param p doors_portal_side?
 local function writeDoorway(p)
     net.WriteBool(p ~= nil)
@@ -52,8 +50,6 @@ if SERVER then
         if self.portals then
             net.WriteEntity(self.portals.exterior)
             net.WriteEntity(self.portals.interior)
-            -- Asked for through GetDoorway rather than read off `Portal`, so a consumer whose doorway
-            -- changes sends the one it has now rather than the one it was built with.
             writeDoorway(self:GetDoorway())
             writeDoorway(self.exterior:GetDoorway())
             if self.customportals then
@@ -340,8 +336,6 @@ else
         self.portals={}
         local exterior=net.ReadEntity()
         local interior=net.ReadEntity()
-        -- kept apart from `Portal` rather than assigned over it: this carries only what a doorway is
-        -- geometrically, and the server-side field may hold more (thickness, models, exit offsets)
         self.doorway = readDoorway()
         local extDoorway = readDoorway()
         if IsValid(self.exterior) then self.exterior.doorway = extDoorway end
