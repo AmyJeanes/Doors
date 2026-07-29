@@ -111,9 +111,27 @@ The stuck-trace filter is built in `GetStuckTrace` from `{ply}` plus a shared `S
 - `lua/doors/sh_owner.lua` (`Doors:SetupOwner`) sets `Creator` (with a client-side polyfill) and `CPPISetOwner` if Falco's CPPI is loaded; fires the `SetupOwner` hook (so a consumer can recurse owner setup into its own sub-entities) and recurses into `ent.interior`. Always use this rather than setting owner directly so prop-protection and the client-visible creator stay consistent.
 - `lua/doors/libraries/libraries/sh_von.lua` is a vendored copy of vON 1.3.4 (table serialization) — leave it alone unless syncing with upstream Vercas/vON.
 - Both base entities pick `base_wire_entity` if `WireLib` is loaded, otherwise `base_gmodentity`. The client `Draw` calls `Wire_Render(self)` only when WireLib exists.
-- `lua/doors/libraries/sh_sound.lua` is the managed-sound hub (BASS channels that survive the listener crossing the interior void, plus the cross-boundary resolver). Two things about it are worth knowing before you test a change:
-  - **`CSoundPatch:IsPlaying()` answers for the patch's own play/stop flag, not for the audio.** A finished one-shot reports `true` indefinitely — measured, a 0.02s file still reported playing three seconds later — and only an explicit `Stop()` clears it. So liveness for an engine-mode handle can't be read from it alone; see `patchFinished`, which times one-shots out against their own length instead.
-  - **The intro → loop-body handover is not exercised by any shipped content.** It only engages for a `.wav` whose loop marker sits past `HANDOVER`, and none of the sounds these addons ship carry one (checked: 0 of 219). To test that path, assign a handle's `intro` / `body` by hand rather than hunting for an asset that triggers it.
+### Sound (`lua/doors/libraries/sound/`)
+
+`lua/doors/libraries/sh_sound.lua` is a stub: it creates `Doors.Sound` and loads the folder (the same pattern TARDIS uses for `modules/teleport`). Consumers only ever call `Doors:PlaySound` / `Doors:StopSounds` and the methods on the handle they get back — everything on `Doors.Sound` is internal, which is why none of it carries `---@api`.
+
+| file | what it owns |
+|-|-|
+| `sh_api.lua` | `Doors:PlaySound` / `StopSounds`, the `doors_sound_opts` contract, the engine's own sound, and the net message. One definition per function across both realms |
+| `cl_engine_mix.lua` | ports of Source's mixer — distance gain, stereo spatialisation, occlusion, mix-group volume |
+| `cl_wav.lua` | `.wav` header parsing (channel count, loop marker) and the trimmed loop-body cache |
+| `cl_boundary.lua` | the cross-boundary model: doorway tuning, spaces, the counterpart rule, `resolve` |
+| `cl_channel.lua` | the managed BASS channel lifecycle — handle methods, park/unpark, the `Think` loop |
+| `cl_debug.lua` | the `doors_debug_sound` tuning panel |
+
+Cross-file calls go through the `Doors.Sound` table at **call** time, never bound to a local at load time — `Doors:LoadFolder` includes alphabetically, which is not dependency order.
+
+Four things worth knowing before you change any of it:
+
+- **`CSoundPatch:IsPlaying()` answers for the patch's own play/stop flag, not for the audio.** A finished one-shot reports `true` indefinitely — measured, a 0.02s file still reported playing three seconds later — and only an explicit `Stop()` clears it. So liveness for an engine-mode handle can't be read from it alone; see `patchFinished`, which times one-shots out against their own length instead.
+- **The intro → loop-body handover is not exercised by any shipped content.** It only engages for a `.wav` whose loop marker sits past `HANDOVER`, and none of the sounds these addons ship carry one (checked: 0 of 219). To test that path, assign a handle's `intro` / `body` by hand rather than hunting for an asset that triggers it.
+- **The `---@class doors_managed_sound` block has to sit directly above `local MANAGED = {}`** in `cl_channel.lua`. That is what types the metatable, so `function MANAGED:Stop()` lands on the handle class; move the block to the top of the file and every method silently stops existing (`undefined-method` at each call site).
+- **`doors_managed_sound` is the wiki category's `Class`, not one of its `Roots`.** As a Root it renders every field of the handle's internal state onto a public page; as the Class it renders only the `---@api` methods. If a new handle method should be documented, tag it `---@api` — and put any internal note above it *with a blank line before the annotation block*, or the note becomes the wiki description.
 
 ## Conventions when adding code
 
