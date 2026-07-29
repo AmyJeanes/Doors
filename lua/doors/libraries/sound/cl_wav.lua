@@ -1,9 +1,3 @@
--- Reading a .wav's header, and building the trimmed loop body a marked-up file needs.
---
--- Chunks are walked rather than read at canonical offsets, so a file with extra chunks (LIST/fact/JUNK)
--- before `fmt ` still reads correctly. Every read is bounded: a truncated or half-mounted file otherwise
--- walks off the end, where string.byte gives nil and the arithmetic raises inside a Think.
-
 ---@class doors_sound_module
 ---@field header fun(path: string): doors_wav_header
 ---@field loop_body_file fun(path: string, from: number): string?
@@ -15,12 +9,8 @@ local Sound = Doors.Sound
 -- Header
 --------------------------------------------------------------------------------------------------
 
--- Channel count matters because Source plays a positioned STEREO .wav as CHAR_OMNI (S_SetChannelStereo,
--- snd_dma.cpp): full mono, distance-attenuated only, never occluded. A stereo OGG/MP3 is not omni
--- (IsStereoWav excludes them) and spatialises normally.
---
--- The loop point matters because the engine loops a .wav from the marker its author baked in, not from
--- the start, while BASS's own looping always wraps to sample 0 - which would replay an intro every cycle.
+-- Source plays a positioned STEREO .wav as CHAR_OMNI - full mono, never occluded - while a stereo
+-- OGG/MP3 is not. The engine also loops a .wav from its baked-in marker, where BASS always wraps to 0.
 ---@param data string
 ---@return number? channels nil if not a parseable WAV
 ---@return number? loopStartSamples nil if the file carries no loop marker
@@ -68,8 +58,6 @@ end
 
 local cache = {} ---@type table<string, doors_wav_header>
 
--- Keyed on the modified time so a live-edited .wav reparses. An OGG caches a constant (nothing to go
--- stale) and packed files report 0, so both stay cached exactly as before.
 ---@param path string sound path relative to sound/
 ---@return doors_wav_header
 local function wavHeader(path)
@@ -81,15 +69,11 @@ local function wavHeader(path)
     if isWav then
         local data = file.Read("sound/" .. path, "GAME")
         if data == nil then
-            -- unreadable .wav (a mount file.Read can't reach): assume stereo, since almost every one
-            -- is, so it defaults to omni like Source treats a stereo wav
             info.omni = true
         else
             local channels, loopStart, rate = wavInfo(data)
             info.omni = channels == 2
             if loopStart and rate and rate > 0 then
-                -- a marker inside its own handover would never be heard, and those are encoder
-                -- artefacts rather than authored intros: treat it as a plain whole-file loop
                 local secs = loopStart / rate
                 info.loop_start = secs > Sound.handover and secs or 0
             end
@@ -104,11 +88,8 @@ Sound.header = wavHeader
 -- Loop body
 --------------------------------------------------------------------------------------------------
 
--- A file whose loop begins partway in can't be looped correctly by BASS, and no amount of seeking from
--- Lua fixes that, because the position we can observe isn't the one being heard. So hand BASS a file
--- that *is* the loop: copy the samples from the marker onwards into data/ once, and loop that whole-file.
--- PCM wav only, which is all that carries a marker anyway. The cache key is the source content, so any
--- edit rebuilds it - even one that leaves the file the same size.
+-- BASS always loops to sample 0, and the position we can observe isn't the one being heard, so a
+-- marked-up file is handed a copy that *is* the loop. Keyed on content, so any edit rebuilds it.
 ---@param path string
 ---@param from number seconds to trim off the front
 ---@return string? dataPath relative to data/, nil if the file can't be trimmed
@@ -132,8 +113,6 @@ local function loopBodyFile(path, from)
             rate = u(pos + 12)
             bits = src:byte(pos + 22) + src:byte(pos + 23) * 256
         elseif id == "data" then
-            -- clamped to what is present, so a length field overrunning the file can't describe a body
-            -- that isn't there
             dataOff, dataLen = pos + 8, math.min(size, #src - pos - 7)
         end
         pos = pos + 8 + size + (size % 2)

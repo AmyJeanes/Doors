@@ -1,7 +1,3 @@
--- The public entry points. A caller describes the sound and where it comes from; this picks how to play
--- it - the engine's own sound, or a managed BASS channel (cl_channel.lua) for the ones that have to
--- survive the listener jumping across the interior void.
-
 ---@class doors_sound_opts
 ---@field path string sound path relative to sound/
 ---@field ent Entity?
@@ -24,18 +20,14 @@ if SERVER then
     util.AddNetworkString("Doors-SoundStop")
 end
 
--- The engine's own sound, positioned like the caller asked. Shared by both realms: played on the server
--- it reaches every client by itself, played on a client it is that client's alone.
 ---@param opts doors_sound_opts
 local function playNative(opts)
     if opts.ent == nil and opts.pos == nil then
-        -- no source at all: an interface sound, played flat rather than placed in the world
         if CLIENT then surface.PlaySound(opts.path) end
         return
     end
     local ent = opts.ent
     if IsValid(ent) then
-        -- EmitSound takes no offset, so an offset sound plays from that fixed point instead of following
         if opts.offset then
             sound.Play(opts.path, ent:LocalToWorld(opts.offset), opts.level, nil, opts.volume)
         else
@@ -46,9 +38,6 @@ local function playNative(opts)
     end
 end
 
--- Fire-and-forget from the server - no handle comes back, so a sound started there is stopped by group
--- rather than polled and re-armed. Everything the client half needs to rebuild it goes across, since
--- silently dropping an opt would leave the caller's sound quietly not doing what it says.
 ---@param opts doors_sound_opts
 local function broadcast(opts)
     net.Start("Doors-Sound")
@@ -57,8 +46,6 @@ local function broadcast(opts)
     net.WriteString(opts.tag or "")
     net.WriteFloat(opts.volume or 1)
     net.WriteEntity(opts.ent or NULL)
-    -- the entity's position rides along, so a client that doesn't have it still hears the sound from
-    -- where it was rather than everywhere at once
     local pos = opts.pos or (IsValid(opts.ent) and opts.ent:GetPos() or nil)
     net.WriteBool(pos ~= nil)
     if pos then net.WriteVector(pos) end
@@ -79,9 +66,6 @@ local function broadcast(opts)
     net.Broadcast()
 end
 
--- One definition across both realms, so the handle a client gets back and the broadcast a server sends
--- stay one documented call rather than two that drift.
-
 ---@api
 ---@param opts doors_sound_opts
 ---@return doors_managed_sound? handle
@@ -92,18 +76,12 @@ function Doors:PlaySound(opts)
         playNative(opts)
         return
     end
-    -- The engine broadcasts a plain positioned sound by itself, so only network the ones a client has to
-    -- build: the BASS channel lives client-side, and an interface sound has no position for the engine
-    -- to carry.
     if not (managed or (opts.ent == nil and opts.pos == nil)) then
         playNative(opts)
         return
     end
     broadcast(opts)
 end
-
--- Only managed sounds can be stopped as a group: the engine's own are fire-and-forget once started, so a
--- caller that needs to cut one short stops it through the entity it plays from.
 
 ---@api
 ---@param owner Entity

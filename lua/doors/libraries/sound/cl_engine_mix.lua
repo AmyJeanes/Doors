@@ -1,7 +1,3 @@
--- Ports of the parts of Source's mixer a managed BASS channel has to reproduce by hand: distance gain,
--- stereo spatialisation and occlusion. A BASS channel is not spatialised by the engine at all, so
--- without these a managed sound would play flat and full volume wherever the listener stood.
-
 ---@class doors_sound_module
 ---@field distance_gain fun(dist: number, level: number): number
 ---@field spatialize fun(pos: Vector, radius: number): number, number
@@ -14,8 +10,7 @@ local Sound = Doors.Sound
 -- Distance gain
 --------------------------------------------------------------------------------------------------
 
--- sound_shared.cpp SND_GetGainFromMult: inverse-distance from the SNDLVL, plus air/foliage loss, the
--- >0.5 soft-knee compression and the min-gain floor. Validated against snd_show's own channel gains at
+-- sound_shared.cpp SND_GetGainFromMult. Validated against snd_show's own channel gains at
 -- 150/300/600/1200u, matching to 1 part in 255.
 local SND_GAIN_COMP_THRESH = 0.5
 local SND_GAIN_COMP_EXP_MAX = 2.5
@@ -69,15 +64,11 @@ end
 -- Stereo spatialisation
 --------------------------------------------------------------------------------------------------
 
--- CAudioDeviceBase::SpatializeChannel + GetSpeakerVol (snd_dev_common.cpp). Returns the per-side gains
--- Source applies to a positioned sound's left/right channels; applied as SetVolume(gain * max(lf,rf))
--- + SetPan((rf-lf)/max) this reproduces its leftvol/rightvol exactly, pan and centre envelope alike.
--- Config-dependent: snd_surround_speakers 0 = headphone, else the 2-speaker 4->2 fold.
+-- CAudioDeviceBase::SpatializeChannel + GetSpeakerVol (snd_dev_common.cpp). snd_surround_speakers 0
+-- is the headphone pair, anything else the 2-speaker 4->2 fold.
 local snd_surround = GetConVar("snd_surround_speakers")
 local SND_VOLCURVE = 1.5
 
--- One speaker's contribution. cspeaker 2 = opposing headphone pair, 4 = the 90-degree surround/stereo
--- speakers; `mono` (0-1) fades the speaker toward the centred distribution target.
 ---@param yaw number
 ---@param speakerYaw number
 ---@param mono number
@@ -109,7 +100,7 @@ local function spatialize(pos, radius)
     if dist < 1 then return 0.9, 0.9 end
     local ang = dir:Angle()
     -- MainEyeAngles, not EyeAngles: this runs from Think, where EyeAngles() is the last render pass's -
-    -- and a doorway on screen makes that the portal's virtual camera, swinging the stereo image aside.
+    -- and a doorway on screen makes that the portal's virtual camera.
     local right = MainEyeAngles():Right()
     local yaw = (ang.yaw - Vector(right.x, right.y, 0):Angle().yaw) % 360
     local pitch = ang.pitch
@@ -117,8 +108,6 @@ local function spatialize(pos, radius)
     if pitch > 180 then pitch = 360 - pitch end
     if pitch > 90 then pitch = 90 - (pitch - 90) end
     local mono = pitch > 45 and math.Clamp((pitch - 45) / 45, 0, 1) or 0
-    -- inside the emitter's own radius a sound reads as mono, ramping from stereo at the rim to full
-    -- mono at half-radius, so an origin you are stood inside barely pans
     if radius > 0 and dist < radius then
         local interval = radius * 0.5
         mono = math.Clamp(mono + 1 - math.max(dist - interval, 0) / interval, 0, 1)
@@ -139,8 +128,7 @@ Sound.spatialize = spatialize
 --------------------------------------------------------------------------------------------------
 
 -- SND_GetGainObscured traces CTraceFilterWorldOnly, so only map brushes muffle a sound and no entity
--- ever does - including an interior's own floor, though the origin sits below it. Source softens this
--- over a 4-point radius; one binary block is close enough and doesn't compound stacked walls.
+-- ever does - including an interior's own floor, though the origin sits below it.
 local snd_obscured = GetConVar("snd_obscured_gain_dB")
 local MASK_BLOCK_AUDIO = bit.bor(CONTENTS_SOLID, CONTENTS_MOVEABLE, CONTENTS_WINDOW) --[[@as MASK]]
 local function ignoreEntities() return false end
@@ -162,8 +150,7 @@ local function occlusion(handle, pos)
 end
 Sound.occlusion = occlusion
 
--- Source scales every sound by its mix-group volume (MXR_GetVolFromMixGroup) before mixing, which a
--- BASS channel bypasses. An addon's own SFX carry no special name or classname, so they fall through
--- Default_Mix to the catch-all "All" group. A constant rather than a per-frame read because GMod
--- exposes no live mixer to Lua.
+-- Source scales every sound by its mix-group volume before mixing, which a BASS channel bypasses.
+-- An addon's own SFX fall through Default_Mix to the catch-all "All" group; GMod exposes no live
+-- mixer to Lua, so this is that constant.
 Sound.mixer_gain = 0.72

@@ -1,12 +1,3 @@
--- A panel for watching and tuning what a doorway does to sound passing through it. Open with the console
--- command `doors_debug_sound`. It lives in the context menu, so hold C to adjust and release C to walk -
--- everything keeps updating either way, because it is driven from a Think hook rather than from the panel,
--- and falloff is judged by walking it.
---
--- The model lives in cl_boundary.lua; this only reads the resolution left on each handle, so what the
--- panel shows is exactly what is playing. The sliders write Doors.Sound.tuning live and every managed
--- sound picks it up on its next frame.
-
 ---@class doors_sound_module
 ---@field debug doors_sound_debug? the tuning panel, once this file has loaded
 
@@ -35,8 +26,6 @@
 ---@field cv_getvolume function? that exterior's real GetCrossBoundaryVolume, put back exactly on release
 local RIG = {}
 
--- Autorefresh re-runs this file, which would orphan the old panel inside the context menu and leave its
--- sound playing with nothing driving it.
 if Doors.Sound.debug then
     Doors.Sound.debug:Close()
 end
@@ -53,8 +42,6 @@ RIG.cfg = {
     cross_volume   = 0.50,
 }
 RIG.rows = {}
--- No default list: this is a base addon, so it names no consumer's content. A path typed into the box is
--- remembered for the session.
 RIG.paths = {} --[[@as string[] ]]
 RIG.sel = 0
 
@@ -70,10 +57,8 @@ end
 -- Holding a door open
 --------------------------------------------------------------------------------------------------
 
--- The library reads openness through the consumer's own GetDoorOpenness, so hold the door by overriding
--- that on the one entity rather than adding a debug path to the library. Put the real method back exactly
--- on release: nilling an instance override does NOT fall through to the class method on a scripted entity
--- that defines its own, it sticks as nil and every later openness() read then errors.
+-- Nilling an instance override does NOT fall through to the class method on a scripted entity that
+-- defines its own - it sticks as nil and every later read errors - so put the real one back exactly.
 function RIG:ReleaseDoor()
     local ext = self.held
     if IsValid(ext) then ext.GetDoorOpenness = self.held_getopenness end
@@ -90,8 +75,6 @@ function RIG:HoldDoor(ext)
     function ext:GetDoorOpenness() return RIG.cfg.openness end
 end
 
--- Same again for the cross-boundary volume, which is also the consumer's own. Off by default, so the
--- panel does not touch what you actually hear until you ask it to.
 function RIG:ReleaseCrossVolume()
     local ext = self.cv_held
     if IsValid(ext) then ext.GetCrossBoundaryVolume = self.cv_getvolume end
@@ -112,10 +95,6 @@ end
 -- What is playing
 --------------------------------------------------------------------------------------------------
 
--- The interior to put the test sound in: the one the local player is immediately in, else the nearest.
--- `doori` rather than an "am I inside" helper, because interiors nest - a shell parked inside another
--- makes those true for every interior up the chain, so they answer "somewhere within" rather than "which
--- space am I in".
 ---@return gmod_door_interior?
 local function findInterior()
     local ply = LocalPlayer()
@@ -149,14 +128,10 @@ function RIG:Play()
     self.snd = Doors:PlaySound({
         path = path,
         ent = ent,
-        -- from the middle of the space rather than the entity origin, which on a resizable interior can
-        -- sit out at one wall
         offset = ent:OBBCenter(),
         loop = true,
         volume = self.cfg.volume,
         level = self.cfg.level,
-        -- owned, so the entity going takes it with it and a group stop can still reach a loop the rig has
-        -- lost its own handle to
         owner = ent,
         tag = "debug",
     })
@@ -176,7 +151,6 @@ local function describe(h)
     return h.pos and "fixed point" or "no position"
 end
 
--- Rows follow Doors.Sound.active, rebuilt only when that set changes so a selection survives.
 function RIG:RefreshList()
     local list = self.list
     if not IsValid(list) then return end
@@ -212,14 +186,11 @@ function RIG:RefreshList()
 end
 
 local function think()
-    -- Panel:Remove never calls OnClose, and the context menu this sits in is rebuilt from under it by a
-    -- spawnmenu reload or a language change - so the rig watches for its own frame going rather than
-    -- waiting to be told, which covers every way it can go, the close button included.
+    -- Panel:Remove never calls OnClose, and a spawnmenu reload rebuilds the context menu from under this.
     if not IsValid(RIG.frame) then return RIG:Close() end
 
     local ok, err = pcall(function()
         local focus = RIG.focus
-        -- a sound that finished is dropped from the active list without being stopped
         if focus and not table.HasValue(Doors.Sound.active, focus) then
             if focus == RIG.snd then RIG.snd = nil end
             RIG.focus = nil
@@ -229,8 +200,6 @@ local function think()
         RIG:HoldDoor(IsValid(int) and int.exterior or nil)
         RIG:HoldCrossVolume(IsValid(int) and int.exterior or nil)
 
-        -- the two sliders that are ours to move, pushed at the handle rather than only read when it
-        -- starts, so they can be judged while it plays
         local snd = RIG.snd
         if snd ~= nil and not snd.stopped then
             snd.base, snd.level = RIG.cfg.volume, RIG.cfg.level
@@ -281,24 +250,16 @@ local function draw3d(_, skybox)
             drawMouth(res.source, Color(70, 120, 190))
         end
 
-        -- Where the sound actually is, not the doorway the model resolves it to, which across a boundary
-        -- is a different room entirely. This runs inside portal passes too, so from outside it shows
-        -- through the doorway, sitting where the sound really is.
         local loud = math.Clamp((toDb(h.volume) - DBFLOOR) / -DBFLOOR, 0, 1)
         render.DrawWireframeSphere(emitter, 12 + loud * 30, 12, 12,
             Color(255, 200 - loud * 140, 60, 255), false)
         render.DrawLine(emitter, emitter - Vector(0, 0, 96), Color(255, 200, 60, 120), false)
 
-        -- and, small, where it is heard from once through the doorway - what carries the direction
         if res.pos and res.pos ~= emitter then
             render.DrawWireframeSphere(res.pos, 7, 6, 6, Color(120, 190, 240, 200), false)
         end
 
-        -- The label rides in the world rather than on the HUD so it travels with the marker through a
-        -- doorway; a screen projection is computed against the main view, so it would vanish exactly when
-        -- the sound it belongs to is only visible through one. EyePos/EyeAngles, not the Main pair: this
-        -- draws inside every pass including a portal's, and the label has to face whichever camera is
-        -- rendering it.
+        -- EyePos/EyeAngles, not the Main pair: this draws inside every pass including a portal's.
         local face = Angle(0, EyeAngles().y - 90, 90)
         cam.Start3D2D(emitter + Vector(0, 0, 64), face,
             math.Clamp(EyePos():Distance(emitter) / 3000, 0.06, 0.6))
@@ -314,8 +275,8 @@ end
 -- Panel
 --------------------------------------------------------------------------------------------------
 
--- Hooks first: everything below can raise, and a Think that errors before unregistering itself raises
--- again every frame after, which is unrecoverable from anywhere but the console.
+-- Hooks first: a Think that errors before unregistering itself raises every frame after, which is
+-- unrecoverable from anywhere but the console.
 function RIG:Close()
     hook.Remove("Think", "doors_debug_sound")
     hook.Remove("PostDrawTranslucentRenderables", "doors_debug_sound")
@@ -328,7 +289,6 @@ function RIG:Close()
     self.list = nil
 end
 
--- Lives in the context menu rather than as a popup, so holding C adjusts and releasing C walks.
 ---@param reveal boolean? pop the context menu open rather than leaving it as it was
 function RIG:Open(reveal)
     local cmenu = g_ContextMenu --[[@as ContextMenuPanel]]
@@ -348,9 +308,8 @@ function RIG:Open(reveal)
     f:SetTitle("Cross-boundary audio")
     f:SetSizable(true)
     if IsValid(cmenu) then
-        -- A panel born while the context menu is shut inherits its disabled input and never gets it back,
-        -- so it draws normally and ignores every click. Set it before building the children, so each one
-        -- still inherits its own natural default - a label is meant to be mouse-transparent.
+        -- A panel born while the context menu is shut inherits its disabled input and never gets it back. Set
+        -- it before building the children, so each still inherits its own default - a label is mouse-off.
         f:SetMouseInputEnabled(true)
         f:SetKeyboardInputEnabled(true)
         if reveal and not cmenu:IsVisible() then cmenu:Open() end
@@ -371,7 +330,6 @@ function RIG:Open(reveal)
         l:SetText(text) l:SetTextColor(Color(220, 220, 235)) l:SetFont("DermaDefaultBold")
     end
 
-    -- tracked so Reset can push the restored values back into them
     local widgets = {} --[[@as { slider: DNumSlider, store: table, key: string }[] ]]
     ---@param text string
     ---@param min number
@@ -455,14 +413,10 @@ function RIG:Open(reveal)
     button("PLAY", function() RIG:Play() end, function() return RIG:CanPlay() end)
     button("Stop", function() RIG:Stop() end, function() return RIG.snd ~= nil end)
 
-    -- Only the test sound's own level is ours to move; every other handle's belongs to whatever started
-    -- it, and writing to that would be tuning the caller rather than the doorway.
     local function testFocused() return RIG.focus ~= nil and RIG.focus == RIG.snd end
     slider("SNDLVL of the test sound", 40, 120, 0, cfg, "level", testFocused)
     slider("volume of the test sound", 0, 1, 2, cfg, "volume", testFocused)
 
-    -- The A/B. Everything below stops meaning anything while this is on, because none of it is ours to
-    -- compute any more - which is the comparison.
     label("Compare against the engine")
     local engine = scroll:Add("DCheckBoxLabel")
     engine:Dock(TOP) engine:DockMargin(6, 6, 6, 0)
@@ -492,9 +446,6 @@ function RIG:Open(reveal)
     slider("openness", 0, 1, 3, cfg, "openness", function() return cfg.manual end)
     check("mark the sound and doorway in the world", "draw3d")
 
-    -- Two absolute numbers rather than a ratio: a ratio drifts as you walk for reasons that have nothing
-    -- to do with the doorway. Left, how loud it is where you stand; right, what the doorway costs, which
-    -- holds still while you move because it depends only on the tuning.
     local summary = scroll:Add("DPanel")
     summary:Dock(TOP) summary:DockMargin(6, 10, 6, 0) summary:SetTall(62)
     ---@param w number
@@ -516,8 +467,6 @@ function RIG:Open(reveal)
         local half = w / 2
         draw.SimpleText("you hear", "DermaDefault", half / 2, 13, Color(150, 155, 170),
             TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-        -- parked = the channel is freed, so snd.volume is frozen at the park point; say so rather than
-        -- showing that stale dB as if it were still being heard
         draw.SimpleText(snd.parked and "parked" or string.format("%.1f dB", toDb(snd.volume)),
             "DermaLarge", half / 2, 34, snd.parked and Color(150, 160, 180) or Color(200, 215, 235),
             TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
@@ -531,9 +480,6 @@ function RIG:Open(reveal)
                 Color(130, 135, 150), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
             return
         end
-        -- res.gain, not res.aperture: the whole doorway cost, so this matches what the doorway actually
-        -- takes off a sound at your position rather than only the openness part, which reads 0 the moment
-        -- the door is open.
         draw.SimpleText("the doorway costs", "DermaDefault", half + half / 2, 13,
             Color(150, 155, 170), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
         draw.SimpleText(string.format("%.1f dB", toDb(res.gain)), "DermaLarge", half + half / 2, 34,
@@ -542,11 +488,6 @@ function RIG:Open(reveal)
             half + half / 2, 52, Color(130, 135, 150), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
     end
 
-    -- Level against distance FROM THE SOUND, along the path it travels, so walking in any direction moves
-    -- the marker the way you would expect. One continuous curve: plain falloff up to the doorway, then the
-    -- through-the-doorway falloff past it. The step down at the doorway line is the aperture and the
-    -- widening gap to the faint line is the extra falloff, so both are visible at once. dB up the side,
-    -- because linear gain squashes everything interesting into the bottom pixel.
     local plot = scroll:Add("DPanel")
     plot:Dock(TOP) plot:DockMargin(6, 6, 6, 0) plot:SetTall(180)
     ---@param w number
@@ -598,10 +539,6 @@ function RIG:Open(reveal)
         if res.int then
             curve(res.d1, maxd, function(d) return Doors:DistanceGain(d, lvl) end, Color(70, 85, 120))
             curve(res.d1, maxd, function(d)
-                -- Directivity (an angle term) and the cross-boundary volume (a falloff) both reach 1 at
-                -- the mouth in the model, so reproduce that: ramp directivity from 1 to the listener's
-                -- value, and raise volume by distance past the mouth. The curve then meets the in-room
-                -- line at an open door, while the marker still lands on it at your distance.
                 local t = res.d2 > 0 and math.Clamp((d - res.d1) / res.d2, 0, 1) or 1
                 local directivity = 1 + (res.directivity - 1) * t
                 local volExtra = res.volume > 0 and res.volume ^ ((d - res.d1) / 1000) or 0
@@ -621,7 +558,6 @@ function RIG:Open(reveal)
         surface.SetDrawColor(255, 255, 255)
         surface.DrawRect(mx - 3, ypos(res.applied) - 3, 6, 6)
 
-        -- the cull floors, dashed across the graph, so the headroom before this sound parks is visible
         local cull = Doors.Sound.culling
         ---@param db number
         ---@param text string
