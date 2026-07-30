@@ -527,23 +527,36 @@ function RIG:Open(reveal)
             end
         end
 
-        curve(1, res.int and res.d1 or maxd, function(d)
-            return Doors:DistanceGain(d, lvl)
-        end, Color(110, 150, 220))
-        if res.int then
-            curve(res.d1, maxd, function(d) return Doors:DistanceGain(d, lvl) end, Color(70, 85, 120))
-            curve(res.d1, maxd, function(d)
-                local t = res.d2 > 0 and math.Clamp((d - res.d1) / res.d2, 0, 1) or 1
-                local directivity = 1 + (res.directivity - 1) * t
-                local volExtra = res.volume > 0 and res.volume ^ ((d - res.d1) / 1000) or 0
-                return Doors:DistanceGain(d, lvl) * res.upstream * res.aperture * directivity
-                    * volExtra * 10 ^ (-(res.db_per_1000 * (d - res.d1) / 1000) / 20)
+        local first = res.hop_count > 0 and res.hops[1].at or maxd
+        curve(1, first, function(d) return Doors:DistanceGain(d, lvl) end, Color(110, 150, 220))
+        if res.hop_count > 0 then
+            curve(first, maxd, function(d) return Doors:DistanceGain(d, lvl) end, Color(70, 85, 120))
+
+            -- Every doorway already passed at this distance, each one falling off over how far the
+            -- sound has come since its own mouth. Its aim term eases in over the leg that follows
+            -- it, so the curve does not step where a doorway joins it.
+            curve(first, maxd, function(d)
+                local gain = Doors:DistanceGain(d, lvl)
+                for i = 1, res.hop_count do
+                    local hop = res.hops[i]
+                    if d <= hop.at then break end
+                    local past = d - hop.at
+                    local leg = (i < res.hop_count and res.hops[i + 1].at or res.dist) - hop.at
+                    local t = leg > 0 and math.Clamp(past / leg, 0, 1) or 1
+                    gain = gain * hop.aperture * (1 + (hop.directivity - 1) * t)
+                        * (hop.volume > 0 and hop.volume ^ (past / 1000) or 0)
+                        * 10 ^ (-(hop.rate * past / 1000) / 20)
+                end
+                return gain
             end, Color(110, 210, 130))
 
-            local dx = pad + pw * math.Clamp(res.d1 / maxd, 0, 1)
-            surface.SetDrawColor(230, 190, 80, 120)
-            surface.DrawRect(dx - 1, 10, 2, ph)
-            draw.SimpleText("doorway", "DermaDefault", dx + 4, 12, Color(230, 190, 80))
+            for i = 1, res.hop_count do
+                local dx = pad + pw * math.Clamp(res.hops[i].at / maxd, 0, 1)
+                surface.SetDrawColor(230, 190, 80, 120)
+                surface.DrawRect(dx - 1, 10, 2, ph)
+                draw.SimpleText(i == res.hop_count and "doorway" or i .. "", "DermaDefault", dx + 4,
+                    12, Color(230, 190, 80))
+            end
         end
 
         local mx = pad + pw * math.Clamp(res.dist / maxd, 0, 1)
