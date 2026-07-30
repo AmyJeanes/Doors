@@ -361,8 +361,7 @@ local function resolve(handle)
         local open = openness(int)
         local aperture = tuning.closed + (1 - tuning.closed) * open ^ tuning.curve
 
-        -- Divided rather than math.log(x, 2): the base argument is a 5.2 signature the 32-bit branch's
-        -- LuaJIT ignores, silently answering a natural log and making this term 31% weak.
+        -- math.log's base argument is a 5.2 addition GMod may not have, and is silently ignored.
         local halvings = math.max(0, math.log(SIZE_NEUTRAL / math.max(area, 1)) / LOG2)
         local dbPer1000 = tuning.falloff * halvings
         local extra = 10 ^ (-(dbPer1000 * d2 / 1000) / 20)

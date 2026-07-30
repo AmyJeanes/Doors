@@ -299,7 +299,6 @@ function RIG:Open(reveal)
     end
     local cfg = self.cfg
     local tuning = Doors.Sound.tuning
-    local culling = Doors.Sound.culling
 
     local f = (IsValid(cmenu) and cmenu:Add("DFrame") or vgui.Create("DFrame")) --[[@as DFrame]]
     self.frame = f
@@ -347,7 +346,7 @@ function RIG:Open(reveal)
         if enabled then
             function sl:Think() self:SetEnabled(enabled() and true or false) end
         end
-        if store == tuning or store == culling then
+        if store == tuning then
             widgets[#widgets + 1] = { slider = sl, store = store, key = key }
         end
     end
@@ -435,11 +434,6 @@ function RIG:Open(reveal)
     check("drive it from the slider (off = use the real value)", "cross_override")
     slider("carries this much 1000u past the mouth", 0, 1, 2, cfg, "cross_volume",
         function() return cfg.cross_override end)
-
-    label("Virtualising distant sounds - free the channel, keep the handle")
-    slider("park below (dB)", -72, -30, 0, culling, "park_db")
-    slider("wake above (dB)", -72, -30, 0, culling, "unpark_db")
-    slider("wait this long below the floor first (s)", 0, 10, 1, culling, "delay")
 
     label("Door")
     check("hold the door at a set openness", "manual")
@@ -558,7 +552,6 @@ function RIG:Open(reveal)
         surface.SetDrawColor(255, 255, 255)
         surface.DrawRect(mx - 3, ypos(res.applied) - 3, 6, 6)
 
-        local cull = Doors.Sound.culling
         ---@param db number
         ---@param text string
         ---@param col table
@@ -568,8 +561,8 @@ function RIG:Open(reveal)
             for x = pad, pad + pw - 4, 8 do surface.DrawRect(x, y, 4, 1) end
             draw.SimpleText(text, "DermaDefault", pad + pw - 2, y - 8, col, TEXT_ALIGN_RIGHT)
         end
-        floorLine(cull.park_db, "park", Color(210, 120, 90))
-        floorLine(cull.unpark_db, "wake", Color(120, 170, 210))
+        floorLine(Doors.Sound.park_db, "park", Color(210, 120, 90))
+        floorLine(Doors.Sound.unpark_db, "wake", Color(120, 170, 210))
 
         draw.SimpleText("in the room", "DermaDefault", pad + 2, h - 18, Color(110, 150, 220))
         draw.SimpleText("through the doorway", "DermaDefault", pad + 84, h - 18, Color(110, 210, 130))
@@ -586,24 +579,20 @@ function RIG:Open(reveal)
     function readout:Think() self:SetText(RIG:Stats()) end
 
     button("DUMP THESE VALUES", function()
-        local t, c = Doors.Sound.tuning, Doors.Sound.culling
+        local t = Doors.Sound.tuning
         MsgN(string.format([[
 
 -- tuned in doors_debug_sound
-closed    = %.3f,   -- fully open is 1 by construction
-curve     = %.2f,
-falloff   = %.2f,   -- dB per 1000u per halving below SIZE_NEUTRAL
-aim       = %.2f,
-park_db   = %.0f,   -- free a channel that has sat below this
-unpark_db = %.0f,   -- reload once it climbs back above this
-delay     = %.0f,   -- seconds below the floor before parking
-]], t.closed, t.curve, t.falloff, t.aim, c.park_db, c.unpark_db, c.delay))
+closed  = %.3f,   -- fully open is 1 by construction
+curve   = %.2f,
+falloff = %.2f,   -- dB per 1000u per halving below SIZE_NEUTRAL
+aim     = %.2f,
+]], t.closed, t.curve, t.falloff, t.aim))
         chat.AddText("dumped to console")
     end)
 
     button("RESET TO DEFAULTS", function()
         for k, v in pairs(Doors.Sound.tuning_defaults) do tuning[k] = v end
-        for k, v in pairs(Doors.Sound.culling_defaults) do culling[k] = v end
         for _, w in ipairs(widgets) do
             if IsValid(w.slider) then w.slider:SetValue(w.store[w.key]) end
         end
@@ -634,7 +623,7 @@ function RIG:Stats()
         snd.omni and "   stereo wav, so omni and unpanned" or ""))
     line("CULLING", snd.parked and "parked - channel freed, handle kept until it is heard again"
         or string.format("live, %.1f dB (parks below %.0f dB after %ds)", toDb(res.applied),
-            Doors.Sound.culling.park_db, Doors.Sound.culling.delay))
+            Doors.Sound.park_db, Doors.Sound.park_delay))
     line("SETTLING", res.healing > 0
         and string.format("%.0f%% of a space change left, gliding from %.1f dB", res.healing * 100,
             toDb(snd.heal_from or 1))

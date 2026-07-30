@@ -1,6 +1,7 @@
 ---@class doors_sound_module
----@field culling doors_sound_culling
----@field culling_defaults doors_sound_culling
+---@field park_db number
+---@field unpark_db number
+---@field park_delay number
 ---@field play fun(opts: doors_sound_opts): doors_managed_sound
 
 local Sound = Doors.Sound
@@ -28,21 +29,12 @@ end, "doors_sound_engine_restart")
 
 -- unpark must sit above park or the two flap, and park must clear Source's own distance-gain floor
 -- (-60 dB at range) or nothing in the open world ever parks.
----@class doors_sound_culling
----@field park_db number applied-gain floor in dB a channel must sit below to be freed
----@field unpark_db number applied-gain floor in dB it must climb back above to reload, above park_db
----@field delay number seconds below the park floor before the channel is freed
-local CULLING_DEFAULTS = {
-    park_db   = -54,
-    unpark_db = -50,
-    delay     = 3,
-}
-Sound.culling = table.Copy(CULLING_DEFAULTS) ---@type doors_sound_culling
-Sound.culling_defaults = CULLING_DEFAULTS ---@type doors_sound_culling
+Sound.park_db = -54
+Sound.unpark_db = -50
+Sound.park_delay = 3
 
----@param db number
----@return number gain
-local function dbToGain(db) return 10 ^ (db / 20) end
+local PARK_GAIN = 10 ^ (Sound.park_db / 20)
+local UNPARK_GAIN = 10 ^ (Sound.unpark_db / 20)
 
 --------------------------------------------------------------------------------------------------
 -- Handle
@@ -343,7 +335,7 @@ local function playManaged(opts)
     end
 
     Sound.resolve(handle)
-    if handle.res.applied < dbToGain(Sound.culling.park_db) and (handle.loop or handle.duration) then
+    if handle.res.applied < PARK_GAIN and (handle.loop or handle.duration) then
         handle.parked = true
         handle.loading = false
         return handle
@@ -500,7 +492,7 @@ local function parkThink(handle)
         handle:Stop()
         return
     end
-    if res.applied >= dbToGain(Sound.culling.unpark_db) then unpark(handle) end
+    if res.applied >= UNPARK_GAIN then unpark(handle) end
 end
 
 ---@param handle doors_managed_sound
@@ -509,9 +501,9 @@ local function parkCheck(handle)
         handle.below_since = nil
         return
     end
-    if handle.res.applied < dbToGain(Sound.culling.park_db) then
+    if handle.res.applied < PARK_GAIN then
         handle.below_since = handle.below_since or RealTime()
-        if RealTime() - handle.below_since >= Sound.culling.delay then park(handle) end
+        if RealTime() - handle.below_since >= Sound.park_delay then park(handle) end
     else
         handle.below_since = nil
     end
