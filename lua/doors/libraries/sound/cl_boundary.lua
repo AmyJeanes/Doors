@@ -118,6 +118,15 @@ local function spaceOf(ent, pos)
     return nil
 end
 
+---@param int gmod_door_interior
+---@return gmod_door_interior? the space this interior's own exterior stands in
+local function containerOf(int)
+    local ext = int.exterior
+    if not IsValid(ext) then return nil end
+    local inside = ext.insideof
+    return IsValid(inside) and inside or nil
+end
+
 ---@class doors_listener_state
 ---@field frame number
 ---@field space gmod_door_interior? the space the camera is in
@@ -185,30 +194,122 @@ local function openness(int)
 end
 
 --------------------------------------------------------------------------------------------------
+-- The doorways in between
+--------------------------------------------------------------------------------------------------
+
+---@class doors_sound_hop
+---@field int gmod_door_interior
+---@field enter boolean the sound enters this interior here, rather than leaving it
+---@field area number the tighter of its two doorways, in square units
+---@field facing number -1 directly behind the doorway it comes out of, 1 head on
+---@field seg number how far the sound travels to reach this doorway
+
+local chain = {} --[[@as doors_sound_hop[] ]]
+
+---@param h doors_sound_hop
+---@return doors_sound_face? source the doorway the sound radiates into
+---@return doors_sound_face? listener the doorway it comes back out of
+---@return number area
+local function hopFaces(h)
+    local intFace, extFace, area = faces(h.int)
+    if intFace == nil or extFace == nil then return nil, nil, 0 end
+    if h.enter then return extFace, intFace, area end
+    return intFace, extFace, area
+end
+
+---@param i number
+---@param int gmod_door_interior
+---@param enter boolean
+local function setHop(i, int, enter)
+    local h = chain[i]
+    if h == nil then
+        chain[i] = { int = int, enter = enter, area = 0, facing = 1, seg = 0 }
+        return
+    end
+    h.int, h.enter = int, enter
+end
+
+---@class doors_listener_chain
+---@field frame number
+---@field space gmod_door_interior?
+---@field depth number
+
+local listenerChain = { frame = -1, depth = 0 } ---@type doors_listener_chain
+local listenerOut = {} --[[@as gmod_door_interior[] ]]
+local listenerHas = {} ---@type table<gmod_door_interior, true>
+
+-- Out of each space the sound sits in until the two share one, then into each the listener sits in.
+---@param space gmod_door_interior?
+---@param listenerSpace gmod_door_interior?
+---@return number hops written into `chain`
+local function chainBetween(space, listenerSpace)
+    if listenerChain.frame ~= FrameNumber() or listenerChain.space ~= listenerSpace then
+        listenerChain.frame, listenerChain.space = FrameNumber(), listenerSpace
+        for k in pairs(listenerHas) do listenerHas[k] = nil end
+        local depth, up = 0, listenerSpace
+        while up and depth < 16 do -- cap against a stale insideof cycle
+            depth = depth + 1
+            listenerOut[depth] = up
+            listenerHas[up] = true
+            up = containerOf(up)
+        end
+        listenerChain.depth = depth
+    end
+
+    local n, meet, up = 0, nil, space
+    for _ = 1, 16 do
+        if up == nil or listenerHas[up] then
+            meet = up
+            break
+        end
+        n = n + 1
+        setHop(n, up, false)
+        up = containerOf(up)
+    end
+
+    local from = listenerChain.depth
+    if meet then
+        for i = 1, listenerChain.depth do
+            if listenerOut[i] == meet then
+                from = i - 1
+                break
+            end
+        end
+    end
+    for i = from, 1, -1 do
+        n = n + 1
+        setHop(n, listenerOut[i], true)
+    end
+    return n
+end
+
+--------------------------------------------------------------------------------------------------
 -- Resolution
 --------------------------------------------------------------------------------------------------
 
 ---@class doors_sound_resolution
 ---@field pos Vector? where the sound is heard from - the doorway itself when it comes through one
 ---@field dist number distance from the listener along the path the sound travels
----@field gain number everything the doorway does to it, 1 when there is no doorway in the path
+---@field gain number everything the doorways do to it, 1 when there is no doorway in the path
 ---@field applied number the finished attenuation: the doorway, the distance and any glide, together
----@field int gmod_door_interior? the boundary in the path, nil when listener and sound share a space
+---@field hop_count number doorways in the path, more than one only where boxes are nested
+---@field upstream number the part of that cost which does not move with you, 1 for a single doorway
+---@field int gmod_door_interior? the last boundary in the path, nil when it shares a space with you
 ---@field inside boolean the listener is in `int` rather than outside it
 ---@field emitter Vector? where the sound actually is, as opposed to where it is heard from
 ---@field source doors_sound_face? the doorway the sound radiates into
 ---@field listener doors_sound_face? the doorway it reaches the listener from
 ---@field normal Vector? which way that doorway faces
----@field d1 number the sound to its own doorway
----@field d2 number the listener's doorway to the listener
----@field area number the tighter doorway's area in square units
----@field openness number
----@field volume number the consumer's own scalar for sound crossing this boundary
----@field aperture number flat gain from how open the door is
----@field db_per_1000 number how fast this doorway's size makes the sound fall off past the mouth
----@field extra number the extra falloff past the mouth, at this distance
----@field vol_extra number the consumer's cross-boundary volume as a falloff, 1 at the mouth
----@field facing number -1 directly behind the doorway, 1 head on
+---@field d1 number the sound to the doorway it finally comes out of, along the path
+---@field d2 number that doorway to the listener
+---@field area number the tightest doorway on the path, in square units
+---@field openness number how open that tightest doorway is
+---@field volume number the consumer's own scalar for sound crossing the path, every boundary in it
+---@field aperture number flat gain from how open the doorways are
+---@field db_per_1000 number how fast the doorway sizes make the sound fall off past the last mouth
+---@field extra number the extra falloff past the mouths, at this distance
+---@field vol_extra number the consumer's cross-boundary volume as a falloff, 1 at the last mouth
+---@field facing number -1 directly behind the last doorway, 1 head on
 ---@field directivity number
 ---@field healing number 0-1 of a captured space change still to fade
 ---@field space gmod_door_interior? the space the sound itself is in, nil in the open world
@@ -218,7 +319,7 @@ end
 local function newResolution()
     return { dist = 0, gain = 1, applied = 1, inside = false, d1 = 0, d2 = 0, area = 0, openness = 1,
         volume = 1, aperture = 1, db_per_1000 = 0, extra = 1, vol_extra = 1, facing = 1, directivity = 1,
-        healing = 0, counterpart = 1 }
+        healing = 0, counterpart = 1, hop_count = 0, upstream = 1 }
 end
 Sound.new_resolution = newResolution
 
@@ -335,6 +436,7 @@ local function resolve(handle)
     res.gain, res.d1, res.d2, res.area = 1, 0, 0, 0
     res.openness, res.volume, res.aperture, res.facing, res.directivity = 1, 1, 1, 1, 1
     res.db_per_1000, res.extra, res.vol_extra, res.counterpart = 0, 1, 1, 1
+    res.hop_count, res.upstream = 0, 1
     res.dist = pos and MainEyePos():Distance(pos) or 0
     if not pos then
         res.applied, res.healing = 1, 0
@@ -345,43 +447,79 @@ local function resolve(handle)
     local space = spaceOf(handle.ent, pos)
     res.space = space
 
-    local int = space ~= listenerSpace and (space or listenerSpace) or nil
-    local intFace, extFace, area = nil, nil, 0
-    if int then intFace, extFace, area = faces(int) end
+    local hops = chainBetween(space, listenerSpace)
+    local tail = 0
 
-    if int and intFace and extFace then
-        local inside = int ~= space
-        local source = inside and extFace or intFace
-        local listener = inside and intFace or extFace
-        local mouth = mouthPoint(listener.ent, listener.portal, MainEyePos())
-        local d1 = pos:Distance(mouthPoint(source.ent, source.portal, pos))
-        local d2 = MainEyePos():Distance(mouth)
+    if hops > 0 then
+        -- Forward, aiming each doorway at whatever the sound reaches next: the one after it, or you.
+        local eye, prev = MainEyePos(), pos
+        local source, listener, area = hopFaces(chain[1])
+        for i = 1, hops do
+            if source == nil or listener == nil then
+                hops = 0
+                break
+            end
+            local h = chain[i]
+            h.area = area
+            h.seg = prev:Distance(mouthPoint(source.ent, source.portal, prev))
 
+            local nextSource, nextListener, nextArea
+            if i < hops then nextSource, nextListener, nextArea = hopFaces(chain[i + 1]) end
+            local aim = nextSource and nextSource.ent:LocalToWorld(nextSource.portal.pos) or eye
+            local mouth = mouthPoint(listener.ent, listener.portal, aim)
+            local normal = mouthNormal(listener.ent, listener.portal)
+            local out = aim - mouth
+            h.facing = out:Length() > 1 and normal:Dot(out:GetNormalized()) or 1
+
+            if i == hops then
+                res.source, res.listener, res.normal, res.pos = source, listener, normal, mouth
+            end
+            prev = mouth
+            source, listener, area = nextSource, nextListener, nextArea
+        end
+        tail = prev:Distance(eye)
+    end
+
+    if hops > 0 then
+        -- Back along it, because a doorway's falloff runs over everything the sound has left to
+        -- travel. Splitting that into a rate and a fixed part is what lets the whole chain collapse
+        -- into one set of terms: only the last leg moves when you do.
         local tuning = Sound.tuning
-        local open = openness(int)
-        local aperture = tuning.closed + (1 - tuning.closed) * open ^ tuning.curve
+        local aperture, directivity, volume = 1, 1, 1
+        local rate, fixedDb, volFixed = 0, 0, 1
+        local area, open, remaining = math.huge, 1, tail
+        for i = hops, 1, -1 do
+            local h = chain[i]
+            local hopOpen = openness(h.int)
+            local hopVolume = math.Clamp(h.int.exterior:GetCrossBoundaryVolume(), 0, 1)
+            local beyond = remaining - tail
 
-        -- math.log's base argument is a 5.2 addition GMod may not have, and is silently ignored.
-        local halvings = math.max(0, math.log(SIZE_NEUTRAL / math.max(area, 1)) / LOG2)
-        local dbPer1000 = tuning.falloff * halvings
-        local extra = 10 ^ (-(dbPer1000 * d2 / 1000) / 20)
+            -- math.log's base argument is a 5.2 addition GMod may not have, and is silently ignored.
+            local halvings = math.max(0, math.log(SIZE_NEUTRAL / math.max(h.area, 1)) / LOG2)
+            local hopRate = tuning.falloff * halvings
 
-        local normal = mouthNormal(listener.ent, listener.portal)
-        local facing = d2 > 1 and normal:Dot((MainEyePos() - mouth):GetNormalized()) or 1
-        local directivity = 1 - tuning.aim * 0.5 * (1 - facing)
+            aperture = aperture * (tuning.closed + (1 - tuning.closed) * hopOpen ^ tuning.curve)
+            directivity = directivity * (1 - tuning.aim * 0.5 * (1 - h.facing))
+            rate, fixedDb = rate + hopRate, fixedDb + hopRate * beyond
+            volume = volume * hopVolume
+            volFixed = volFixed * (hopVolume > 0 and hopVolume ^ (beyond / 1000) or 0)
 
-        res.int, res.inside = int, inside
-        res.source, res.listener, res.normal = source, listener, normal
+            area, open = math.min(area, h.area), math.min(open, hopOpen)
+            remaining = remaining + h.seg
+        end
 
-        local volume = math.Clamp(int.exterior:GetCrossBoundaryVolume(), 0, 1)
-        local volExtra = volume > 0 and volume ^ (d2 / 1000) or 0
+        local upstream = 10 ^ (-(fixedDb / 1000) / 20) * volFixed
+        local extra = 10 ^ (-((fixedDb + rate * tail) / 1000) / 20)
+        local volExtra = volFixed * (volume > 0 and volume ^ (tail / 1000) or 0)
 
-        res.d1, res.d2, res.area = d1, d2, area
-        res.openness, res.volume, res.aperture = open, volume, aperture
-        res.db_per_1000, res.extra, res.vol_extra = dbPer1000, extra, volExtra
-        res.facing, res.directivity = facing, directivity
-        res.gain = aperture * extra * directivity * volExtra
-        res.pos, res.dist = mouth, d1 + d2
+        local last = chain[hops]
+        res.int, res.inside, res.facing = last.int, last.enter, last.facing
+        res.area, res.openness, res.aperture = area, open, aperture
+        res.db_per_1000, res.extra = rate, extra
+        res.volume, res.vol_extra, res.directivity = volume, volExtra, directivity
+        res.hop_count, res.upstream = hops, upstream
+        res.gain = aperture * directivity * extra * volExtra
+        res.d1, res.d2, res.dist = remaining - tail, tail, remaining
     end
 
     local gain = res.gain

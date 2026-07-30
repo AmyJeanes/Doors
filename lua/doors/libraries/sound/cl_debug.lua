@@ -536,8 +536,8 @@ function RIG:Open(reveal)
                 local t = res.d2 > 0 and math.Clamp((d - res.d1) / res.d2, 0, 1) or 1
                 local directivity = 1 + (res.directivity - 1) * t
                 local volExtra = res.volume > 0 and res.volume ^ ((d - res.d1) / 1000) or 0
-                return Doors:DistanceGain(d, lvl) * res.aperture * directivity * volExtra
-                    * 10 ^ (-(res.db_per_1000 * (d - res.d1) / 1000) / 20)
+                return Doors:DistanceGain(d, lvl) * res.upstream * res.aperture * directivity
+                    * volExtra * 10 ^ (-(res.db_per_1000 * (d - res.d1) / 1000) / 20)
             end, Color(110, 210, 130))
 
             local dx = pad + pw * math.Clamp(res.d1 / maxd, 0, 1)
@@ -633,13 +633,16 @@ function RIG:Stats()
         return table.concat(out, "\n")
     end
     line("LISTENER", res.inside and "inside, and the sound is not" or "outside, and the sound is in")
-    line("PATH", string.format("sound %.0fu -> doorway, doorway %.0fu -> you  (total %.0fu)",
-        res.d1, res.d2, res.dist))
+    line("PATH", string.format("sound %.0fu -> doorway, doorway %.0fu -> you  (total %.0fu%s)",
+        res.d1, res.d2, res.dist,
+        res.hop_count > 1 and string.format(", through %d doorways", res.hop_count) or ""))
     line("BASELINE", string.format("%.1f dB   free field over the whole path",
         toDb(Doors:DistanceGain(res.dist, snd.level or 75))))
-    line("APERTURE", string.format("%.1f dB   at %.0f%% open", toDb(res.aperture), res.openness * 100))
-    line("FALLOFF", string.format("%.1f dB here   (%.2f dB/1000u from a %.0f square unit doorway)",
-        toDb(res.extra), res.db_per_1000, res.area))
+    local tightest = res.hop_count > 1 and ", tightest of " .. res.hop_count or ""
+    line("APERTURE", string.format("%.1f dB   at %.0f%% open%s", toDb(res.aperture),
+        res.openness * 100, tightest))
+    line("FALLOFF", string.format("%.1f dB here   (%.2f dB/1000u from a %.0f square unit doorway%s)",
+        toDb(res.extra), res.db_per_1000, res.area, tightest))
     line("AIM", string.format("%.1f dB   facing %+.2f (%s)", toDb(res.directivity), res.facing,
         res.facing > 0.3 and "in front of it" or (res.facing < -0.3 and "round the back" or "edge on")))
     line("CROSS-VOL", string.format("%.1f dB here   %.0f%% carries 1000u past the mouth",

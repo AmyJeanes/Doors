@@ -120,13 +120,15 @@ The stuck-trace filter is built in `GetStuckTrace` from `{ply}` plus a shared `S
 | `sh_api.lua` | `Doors:PlaySound` / `StopSounds`, the `doors_sound_opts` contract, the engine's own sound, and the net message. One definition per function across both realms |
 | `cl_engine_mix.lua` | ports of Source's mixer — distance gain, stereo spatialisation, occlusion, mix-group volume |
 | `cl_wav.lua` | `.wav` header parsing (channel count, loop marker) and the trimmed loop-body cache |
-| `cl_boundary.lua` | the cross-boundary model: doorway tuning, spaces, the counterpart rule, `resolve` |
+| `cl_boundary.lua` | the cross-boundary model: doorway tuning, spaces, nesting, the counterpart rule, `resolve` |
 | `cl_channel.lua` | the managed BASS channel lifecycle — handle methods, park/unpark, the `Think` loop |
 | `cl_debug.lua` | the `doors_debug_sound` tuning panel |
 
 Cross-file calls go through the `Doors.Sound` table at **call** time, never bound to a local at load time — `Doors:LoadFolder` includes alphabetically, which is not dependency order.
 
-Four things worth knowing before you change any of it:
+Five things worth knowing before you change any of it:
+
+- **A sound can be several doorways away, and `resolve` walks all of them** — a box parked inside another box puts two between its sounds and the world. The per-doorway costs collapse into one set of terms on `doors_sound_resolution` by splitting each doorway's falloff into a rate (`db_per_1000`, summed) and a fixed part (folded into `upstream`), because only the last leg of the path changes when the listener moves. That is what lets the debug panel keep drawing a single-boundary curve that is still exact — so if you add a term, decide which of the two halves it belongs in.
 
 - **`CSoundPatch:IsPlaying()` answers for the patch's own play/stop flag, not for the audio.** A finished one-shot reports `true` indefinitely — measured, a 0.02s file still reported playing three seconds later — and only an explicit `Stop()` clears it. So liveness for an engine-mode handle can't be read from it alone; see `patchFinished`, which times one-shots out against their own length instead.
 - **The intro → loop-body handover is not exercised by any shipped content.** It only engages for a `.wav` whose loop marker sits past `HANDOVER`, and none of the sounds these addons ship carry one (checked: 0 of 219). To test that path, assign a handle's `intro` / `body` by hand rather than hunting for an asset that triggers it.
