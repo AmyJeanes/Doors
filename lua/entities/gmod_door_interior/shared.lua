@@ -1,5 +1,6 @@
 ---@class gmod_door_interior : Entity
 ---@field Model string
+---@field Fallback table?
 ---@field exterior gmod_door_exterior
 ---@field Portal doors_portal_side?
 ---@field doorway doors_portal_side? geometry-only copy, networked to the client at player init
