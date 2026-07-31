@@ -111,6 +111,22 @@ The stuck-trace filter is built in `GetStuckTrace` from `{ply}` plus a shared `S
 - `lua/doors/sh_owner.lua` (`Doors:SetupOwner`) sets `Creator` (with a client-side polyfill) and `CPPISetOwner` if Falco's CPPI is loaded; fires the `SetupOwner` hook (so a consumer can recurse owner setup into its own sub-entities) and recurses into `ent.interior`. Always use this rather than setting owner directly so prop-protection and the client-visible creator stay consistent.
 - `lua/doors/libraries/libraries/sh_von.lua` is a vendored copy of vON 1.3.4 (table serialization) — leave it alone unless syncing with upstream Vercas/vON.
 - Both base entities pick `base_wire_entity` if `WireLib` is loaded, otherwise `base_gmodentity`. The client `Draw` calls `Wire_Render(self)` only when WireLib exists.
+### Sound (`lua/doors/libraries/sound/`)
+
+`lua/doors/libraries/sh_sound.lua` is a stub: it creates `Doors.Sound` and loads the folder (the same pattern TARDIS uses for `modules/teleport`). Consumers only ever call `Doors:PlaySound` / `Doors:StopSounds` and the methods on the handle they get back — everything on `Doors.Sound` is internal, which is why none of it carries `---@api`.
+
+| file | what it owns |
+|-|-|
+| `sh_api.lua` | `Doors:PlaySound` / `StopSounds`, the `doors_sound_opts` contract, the engine's own sound, and the net message. One definition per function across both realms |
+| `cl_engine_mix.lua` | ports of Source's mixer — distance gain, stereo spatialisation, occlusion, mix-group volume |
+| `cl_wav.lua` | `.wav` header parsing (channel count, loop marker) and the trimmed loop-body cache |
+| `cl_boundary.lua` | the cross-boundary model: doorway tuning, spaces, nesting, the counterpart rule, `resolve` |
+| `cl_channel.lua` | the managed BASS channel lifecycle — handle methods, park/unpark, the `Think` loop |
+| `cl_debug.lua` | the `doors_debug_sound` tuning panel |
+
+Cross-file calls go through the `Doors.Sound` table at **call** time, never bound to a local at load time — `Doors:LoadFolder` includes alphabetically, which is not dependency order.
+
+A sound can be **several doorways away**, and `resolve` walks the whole containment chain to find them — a box parked inside another box puts two between its sounds and the world. `doors_sound_resolution` carries both views of the result: `hops` (the first `hop_count` of them) describes each doorway on the path, and the scalar fields are the totals across it.
 
 ## Conventions when adding code
 

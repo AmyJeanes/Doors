@@ -23,12 +23,35 @@
 ---@field exterior linked_portal_door
 ---@field interior linked_portal_door
 
+---@param p doors_portal_side?
+local function writeDoorway(p)
+    net.WriteBool(p ~= nil)
+    if not p then return end
+    net.WriteVector(p.pos)
+    net.WriteAngle(p.ang)
+    net.WriteFloat(p.width)
+    net.WriteFloat(p.height)
+end
+
+---@return doors_portal_side?
+local function readDoorway()
+    if not net.ReadBool() then return nil end
+    return {
+        pos = net.ReadVector(),
+        ang = net.ReadAngle(),
+        width = net.ReadFloat(),
+        height = net.ReadFloat(),
+    }
+end
+
 if SERVER then
 
     ENT:AddHook("PlayerInitialize", "portals", function(self)
         if self.portals then
             net.WriteEntity(self.portals.exterior)
             net.WriteEntity(self.portals.interior)
+            writeDoorway(self:GetDoorway())
+            writeDoorway(self.exterior:GetDoorway())
             if self.customportals then
                 net.WriteBool(true)
                 net.WriteInt(table.Count(self.customportals),8)
@@ -313,6 +336,9 @@ else
         self.portals={}
         local exterior=net.ReadEntity()
         local interior=net.ReadEntity()
+        self.doorway = readDoorway()
+        local extDoorway = readDoorway()
+        if IsValid(self.exterior) then self.exterior.doorway = extDoorway end
         if IsValid(exterior) and IsValid(interior) then
             self.portals.exterior=exterior
             self.portals.exterior.exterior=self.exterior
