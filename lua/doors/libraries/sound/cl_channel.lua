@@ -559,6 +559,9 @@ hook.Add("Think", "doors_managed_sounds", function()
                     Sound.resolve(handle)
                 end
             elseif not IsValid(chan) or chan:GetState() == GMOD_CHANNEL_STOPPED then
+                -- A channel stopped from outside is indistinguishable from one an engine hiccup killed,
+                -- so the owner remakes it next frame and stopsound is near a no-op on a loop. The sound
+                -- settings are the off-switch.
                 drop(handle)
             else
                 stepFade(handle)

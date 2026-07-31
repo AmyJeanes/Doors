@@ -497,7 +497,9 @@ local function resolve(handle)
 
     if hops > 0 then
         -- Back along it, because a doorway's falloff runs over everything the sound still has to
-        -- travel, which the doorways behind it do not know yet.
+        -- travel, which the doorways behind it do not know yet. Every per-doorway term is written to
+        -- its hop as well as into the total: the debug graph is drawn from the hops, so a term that
+        -- lands in only one of the two makes the graph and the audio disagree.
         local tuning = Sound.tuning
         local aperture, directivity, volume, extra, volExtra = 1, 1, 1, 1, 1
         local rate, area, open, remaining = 0, math.huge, 1, tail
@@ -532,6 +534,8 @@ local function resolve(handle)
     end
 
     local gain = res.gain
+    -- One distance gain over the whole path. Attenuating each leg separately is the obvious reading and
+    -- fights Source's own curve - far enough out it makes a doorway raise the level instead of cut it.
     if handle.level then gain = gain * Sound.distance_gain(res.dist, handle.level) end
     gain = math.max(gain, GAIN_FLOOR)
     local weight, settled = counterpartGain(handle, space, listenerSpace)
@@ -563,6 +567,9 @@ local function resolve(handle)
     if handle.cp_hold and healing > 0 and from then
         res.applied = from
     else
+        -- Interpolated against this frame's gain, never a dB offset captured once at the crossing:
+        -- crossing moves the listener, so a stored offset multiplies whatever replaced the gain it was
+        -- measured against, and runs away into a hard clip.
         res.applied = (healing > 0 and from) and gain ^ (1 - healing) * from ^ healing or gain
     end
     handle.last_gain = res.applied
