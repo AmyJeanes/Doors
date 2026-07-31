@@ -7,8 +7,8 @@
     },
     "workspace": {
         "library": [
-            "./.tools/glua-api",
             "./.luatypes",
+            "./.tools/glua-api",
             "../world-portals/lua",
             "../world-portals/.luatypes",
             "../wire"
