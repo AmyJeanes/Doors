@@ -111,8 +111,6 @@ end
 -- Per-frame gain and rate
 --------------------------------------------------------------------------------------------------
 
-local volumeConVar = GetConVar("volume") -- BASS bypasses the convar EmitSound obeys, so fold it in
-
 ---@param handle doors_managed_sound
 ---@param res doors_sound_resolution
 ---@return number
@@ -121,7 +119,8 @@ local function targetVolume(handle, res)
     if res.pos and not handle.omni then
         gain = gain * Sound.occlusion(handle, res.pos)
     end
-    return handle.base * gain * Sound.mixer_gain * (volumeConVar and volumeConVar:GetFloat() or 1)
+    -- No `volume` term: GMod already applies that convar to a BASS channel, so folding it in squares it.
+    return handle.base * gain * Sound.mixer_gain
 end
 
 local OMNI_ENVELOPE = 0.9 -- GetSpeakerVol's fully-mono target per front speaker (both sides equal)
