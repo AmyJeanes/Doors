@@ -122,7 +122,6 @@ function RIG:Play()
     local path = self.paths[self.sel]
     local int = findInterior()
     if not (path and IsValid(int)) then return end
-    ---@cast int gmod_door_interior
     local ent = self.cfg.from_exterior and int.exterior or int
     if not IsValid(ent) then return end
     self.snd = Doors:PlaySound({
@@ -154,7 +153,6 @@ end
 function RIG:RefreshList()
     local list = self.list
     if not IsValid(list) then return end
-    ---@cast list DListView
     local active = Doors.Sound.active
     local stale = #active ~= #self.rows
     if not stale then
@@ -300,7 +298,7 @@ function RIG:Open(reveal)
     local cfg = self.cfg
     local tuning = Doors.Sound.tuning
 
-    local f = (IsValid(cmenu) and cmenu:Add("DFrame") or vgui.Create("DFrame")) --[[@as DFrame]]
+    local f = (IsValid(cmenu) and cmenu:Add("DFrame") or vgui.Create("DFrame"))
     self.frame = f
     f:SetSize(470, 780)
     f:SetPos(40, 40)

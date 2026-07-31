@@ -30,7 +30,7 @@ if SERVER then
         coroutine.yield()
         local tdret={}
         local td={
-            output=tdret --[[@as TraceResult]],
+            output=tdret,
             mins=e.mins or e:OBBMins(),
             maxs=e.maxs or e:OBBMaxs(),
             mask=MASK_PLAYERSOLID,
@@ -120,7 +120,6 @@ if SERVER then
         local e=ents.Create(self.Interior)
         if not IsValid(e) then error("entity creation failed: " .. self.Interior) end
         -- self.Interior names an interior door class
-        ---@cast e gmod_door_interior
         e.spacecheck=true
         e.exterior=self
         e.ID=self.ID

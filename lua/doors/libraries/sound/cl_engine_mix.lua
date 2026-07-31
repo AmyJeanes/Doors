@@ -130,7 +130,7 @@ Sound.spatialize = spatialize
 -- SND_GetGainObscured traces CTraceFilterWorldOnly, so only map brushes muffle a sound and no entity
 -- ever does - including an interior's own floor, though the origin sits below it.
 local snd_obscured = GetConVar("snd_obscured_gain_dB")
-local MASK_BLOCK_AUDIO = bit.bor(CONTENTS_SOLID, CONTENTS_MOVEABLE, CONTENTS_WINDOW) --[[@as MASK]]
+local MASK_BLOCK_AUDIO = bit.bor(CONTENTS_SOLID, CONTENTS_MOVEABLE, CONTENTS_WINDOW)
 local function ignoreEntities() return false end
 
 ---@param handle doors_managed_sound

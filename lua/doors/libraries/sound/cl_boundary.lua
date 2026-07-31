@@ -104,8 +104,7 @@ end
 local function spaceOf(ent, pos)
     for _ = 1, 16 do -- cap against a parent cycle
         if not IsValid(ent) then break end
-        ---@cast ent Entity
-        if ent.DoorInterior then return ent --[[@as gmod_door_interior]] end
+        if ent.DoorInterior then return ent end
         if ent.DoorExterior then
             local inside = ent.insideof
             return IsValid(inside) and inside or nil

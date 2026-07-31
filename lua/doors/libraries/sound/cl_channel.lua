@@ -326,7 +326,7 @@ local function playManaged(opts)
     table.insert(Sound.active, handle)
 
     if engineMode:GetBool() and IsValid(opts.ent) then
-        local patch = CreateSound(opts.ent --[[@as Entity]], opts.path)
+        local patch = CreateSound(opts.ent, opts.path)
         handle.patch = patch
         handle.loading = false
         patch:PlayEx(handle.base, 100)
