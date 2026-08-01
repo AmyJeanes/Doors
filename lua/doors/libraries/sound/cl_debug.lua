@@ -374,10 +374,8 @@ function RIG:Open(reveal)
     self.list = list
     list:Dock(TOP) list:DockMargin(6, 2, 6, 0) list:SetTall(120) list:SetMultiSelect(false)
     list:AddColumn("sound")
-    -- glua_ls 1.1.2: AddColumn is annotated `@return Panel` though its own doc text names the
-    -- DListView_Column it actually hands back, so SetFixedWidth is invisible without the cast.
-    local col_source = list:AddColumn("where from") --[[@as DListView_Column]]
-    local col_level = list:AddColumn("level") --[[@as DListView_Column]]
+    local col_source = list:AddColumn("where from")
+    local col_level = list:AddColumn("level")
     col_source:SetFixedWidth(130)
     col_level:SetFixedWidth(60)
     ---@param id number

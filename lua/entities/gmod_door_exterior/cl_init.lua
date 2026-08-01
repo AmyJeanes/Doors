@@ -9,9 +9,6 @@ function ENT:Draw()
             self:DrawModel()
         end
         if WireLib then
-            -- ENT.Base is base_wire_entity only when Wire is mounted, so the analyzer
-            -- resolves the non-Wire branch and can't see us as a wire entity here
-            ---@diagnostic disable-next-line: infer-unknown
             Wire_Render(self)
         end
         self:CallHook("Draw")

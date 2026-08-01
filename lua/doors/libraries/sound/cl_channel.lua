@@ -351,7 +351,7 @@ local function playManaged(opts)
             if IsValid(chan) then chan:Stop() end -- stopped before the load finished
         elseif IsValid(chan) then
             if not handle.loop and handle.duration == nil then
-                local len = chan:GetLength() ---@type number?
+                local len = chan:GetLength()
                 if len and len > 0 then
                     handle.duration = len
                     header.duration = len

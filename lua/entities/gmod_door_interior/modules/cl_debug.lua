@@ -1,6 +1,5 @@
 -- Debug
 -- This module file lives under modules/ for the load mechanism but is fully commented out.
----@diagnostic disable: unused
 
 --[[
 local wireframe=Material("models/wireframe")
