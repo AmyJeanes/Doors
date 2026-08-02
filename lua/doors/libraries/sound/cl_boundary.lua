@@ -33,7 +33,7 @@ local Sound = Doors.Sound
 ---@field falloff number dB per 1000u, for each halving of the doorway below SIZE_NEUTRAL
 ---@field aim number how much the opening throws its sound outward: 0 every way, 1 silent behind it
 local TUNING_DEFAULTS = {
-    closed  = 0.250,
+    closed  = 0.35,
     curve   = 1.00,
     falloff = 25.00,
     aim     = 0.50,
