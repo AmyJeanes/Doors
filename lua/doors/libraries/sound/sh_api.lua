@@ -14,6 +14,7 @@
 ---@field pin_on_jump number? units/second past which a teleporting emitter leaves its tail behind
 ---@field attach Entity? takes over as the source once it arrives within attach_dist of pos
 ---@field attach_dist number? arrival distance for attach
+---@field linger boolean? on the owner's removal, play out from the last position instead of stopping (one-shots only)
 
 if SERVER then
     util.AddNetworkString("Doors-Sound")
@@ -63,6 +64,7 @@ local function broadcast(opts)
     net.WriteEntity(opts.attach or NULL)
     net.WriteBool(opts.attach_dist ~= nil)
     if opts.attach_dist then net.WriteFloat(opts.attach_dist) end
+    net.WriteBool(opts.linger == true)
     net.Broadcast()
 end
 
@@ -120,6 +122,7 @@ if CLIENT then
         local pin_on_jump = net.ReadBool() and net.ReadFloat() or nil
         local attach = net.ReadEntity()
         local attach_dist = net.ReadBool() and net.ReadFloat() or nil
+        local linger = net.ReadBool()
         Doors:PlaySound({
             path = path,
             owner = IsValid(owner) and owner or nil,
@@ -136,6 +139,7 @@ if CLIENT then
             pin_on_jump = pin_on_jump,
             attach = IsValid(attach) and attach or nil,
             attach_dist = attach_dist,
+            linger = linger,
         })
     end)
 

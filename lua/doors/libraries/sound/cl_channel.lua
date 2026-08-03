@@ -59,6 +59,7 @@ local UNPARK_GAIN = 10 ^ (Sound.unpark_db / 20)
 ---@field pin_on_jump number? see doors_sound_opts
 ---@field attach Entity? see doors_sound_opts
 ---@field attach_dist number distance from pos at which attach takes over as the source
+---@field linger boolean? see doors_sound_opts
 ---@field occ number? smoothed occlusion gain
 ---@field omni boolean true for a stereo .wav - Source plays it omnidirectional (mono, no pan, unobscured)
 ---@field sp_paused boolean? true while parked by the SP-pause watcher
@@ -310,6 +311,7 @@ local function playManaged(opts)
         pin_on_jump = opts.pin_on_jump,
         attach = opts.attach,
         attach_dist = opts.attach_dist or 500,
+        linger = opts.linger,
         omni = header.omni,
         loop = opts.loop,
         loop_start = header.loop_start,
@@ -535,7 +537,11 @@ hook.Add("Think", "doors_managed_sounds", function()
     for i = #list, 1, -1 do
         local handle = list[i]
         if handle.owner ~= nil and not IsValid(handle.owner) then
-            handle:Stop() -- owner deleted, like the entity's own EmitSounds would have
+            if handle.linger then
+                handle.owner = nil -- detach and play out where it was, not die with the emitter
+            else
+                handle:Stop() -- owner deleted, like the entity's own EmitSounds would have
+            end
         elseif handle.patch then
             stepFade(handle)
             local patch = handle.patch
