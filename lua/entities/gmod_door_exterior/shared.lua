@@ -8,6 +8,8 @@
 ---@field occupants table<Player, boolean>
 ---@field initqueue table
 ---@field _creatorsteamid string?
+---@field targeting_npcs table<NPC, true>
+---@field NPCsTargetExterior boolean? NPCs will target this exterior if they see players go inside it
 
 ENT.Type = "anim"
 if WireLib then
