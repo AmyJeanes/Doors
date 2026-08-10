@@ -15,6 +15,8 @@
 ---@field attach Entity? takes over as the source once it arrives within attach_dist of pos
 ---@field attach_dist number? arrival distance for attach
 ---@field linger boolean? on the owner's removal, play out from the last position instead of stopping (one-shots only)
+---@field seek number? start this many seconds into the file (managed sounds only)
+---@field fade_in number? ramp up from silence to the target volume over this many seconds (managed sounds only)
 
 if SERVER then
     util.AddNetworkString("Doors-Sound")
@@ -65,6 +67,10 @@ local function broadcast(opts)
     net.WriteBool(opts.attach_dist ~= nil)
     if opts.attach_dist then net.WriteFloat(opts.attach_dist) end
     net.WriteBool(opts.linger == true)
+    net.WriteBool(opts.seek ~= nil)
+    if opts.seek then net.WriteFloat(opts.seek) end
+    net.WriteBool(opts.fade_in ~= nil)
+    if opts.fade_in then net.WriteFloat(opts.fade_in) end
     net.Broadcast()
 end
 
@@ -123,6 +129,8 @@ if CLIENT then
         local attach = net.ReadEntity()
         local attach_dist = net.ReadBool() and net.ReadFloat() or nil
         local linger = net.ReadBool()
+        local seek = net.ReadBool() and net.ReadFloat() or nil
+        local fade_in = net.ReadBool() and net.ReadFloat() or nil
         Doors:PlaySound({
             path = path,
             owner = IsValid(owner) and owner or nil,
@@ -140,6 +148,8 @@ if CLIENT then
             attach = IsValid(attach) and attach or nil,
             attach_dist = attach_dist,
             linger = linger,
+            seek = seek,
+            fade_in = fade_in,
         })
     end)
 

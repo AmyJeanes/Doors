@@ -263,7 +263,7 @@ local last_think_frame = 0
 ---@param handle doors_managed_sound
 ---@param chan IGModAudioChannel
 ---@param loop boolean whether this channel loops (false for an intro-only channel or a one-shot)
----@param seekTo number? seconds to resume from, for a one-shot returning from park
+---@param seekTo number? seconds to start at - an initial seek, or a one-shot resuming from park
 local function startChannel(handle, chan, loop, seekTo)
     handle.chan = chan
     if loop then chan:EnableLooping(true) end
@@ -316,7 +316,7 @@ local function playManaged(opts)
         loop = opts.loop,
         loop_start = header.loop_start,
         duration = header.duration,
-        clock = 0,
+        clock = opts.seek or 0,
         rate = 1,
         stopped = false,
         loading = true,
@@ -326,6 +326,12 @@ local function playManaged(opts)
         heal_span = Sound.transition_floor,
     }, MANAGED)
     table.insert(Sound.active, handle)
+
+    if opts.fade_in and opts.fade_in > 0 then
+        handle.fade_to = handle.base -- ramp up from silence to the caller volume
+        handle.fade_left = opts.fade_in
+        handle.base = 0
+    end
 
     if engineMode:GetBool() and IsValid(opts.ent) then
         local patch = CreateSound(opts.ent, opts.path)
@@ -359,7 +365,7 @@ local function playManaged(opts)
                     header.duration = len
                 end
             end
-            startChannel(handle, chan, handle.loop and bodyPath == nil)
+            startChannel(handle, chan, handle.loop and bodyPath == nil, opts.seek)
         else
             onLoadFail(handle, opts.path, errId, errName)
         end
