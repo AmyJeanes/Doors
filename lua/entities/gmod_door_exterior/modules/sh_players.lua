@@ -267,9 +267,6 @@ else
         -- defers to the server.
         local int = self.interior
         if int:IsStuck(ent) then
-            -- glua_ls upstream: ResolveSafePos' declared @return reads as inferred - needs both
-            -- the IsValid guard above and this file sorting first -- https://github.com/Pollux12/gmod-glua-ls/issues/74
-            ---@type Vector?
             local safe = int:ResolveSafePos(ent, false)
             if safe then ent:SetPos(safe) end
         end
