@@ -1,6 +1,3 @@
--- Partial definitions completed at runtime
----@diagnostic disable: missing-fields
-
 -- Handles portals for rendering, thanks to bliptec (http://facepunch.com/member.php?u=238641) for being a babe
 
 ---@class doors_portal_side
@@ -23,8 +20,8 @@
 ---@field exit doors_portal_side
 
 ---@class doors_portal_pair
----@field exterior linked_portal_door
----@field interior linked_portal_door
+---@field exterior linked_portal_door?
+---@field interior linked_portal_door?
 
 ---@param p doors_portal_side?
 local function writeDoorway(p)
