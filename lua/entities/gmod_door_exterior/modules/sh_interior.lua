@@ -144,6 +144,7 @@ if SERVER then
     end)
 else
     ENT:AddHook("SlowThink","interior",function(self)
+        ---@type gmod_door_interior?
         local inside
         for k in pairs(Doors:GetInteriors()) do
             if k:PositionInside(self:GetPos()) then

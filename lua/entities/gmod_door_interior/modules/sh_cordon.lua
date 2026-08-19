@@ -8,7 +8,8 @@
 ---@field _rtc boolean
 
 ENT:AddHook("Initialize", "cordon", function(self)
-    self.props={}
+    -- glua_ls upstream: empty {} rejected against the declared container field type -- https://github.com/Pollux12/gmod-glua-ls/issues/80
+    self.props={} --[[@as table<Entity, boolean|integer>]]
     self.cordonignore={}
     if not (self.mins and self.maxs) then
         self.mins,self.maxs=self:OBBMins()*0.95, self:OBBMaxs()*0.95

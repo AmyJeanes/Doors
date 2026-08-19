@@ -76,7 +76,8 @@ function ENT:Initialize()
         self.phys:Wake()
     end
     
-    self.occupants={}
+    -- glua_ls upstream: empty {} rejected against the declared container field type -- https://github.com/Pollux12/gmod-glua-ls/issues/80
+    self.occupants={} --[[@as table<Player, boolean>]]
     self.initqueue={}
     self.lastthink=CurTime()
     self.nextslowthink=CurTime()
