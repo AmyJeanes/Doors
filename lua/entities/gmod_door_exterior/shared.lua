@@ -47,6 +47,7 @@ local hooks={}
 ---@overload fun(self: gmod_door_exterior, name: "PlayerInitialize", id: string, func: fun(self: gmod_door_exterior, ply: Player, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PostDrawPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PostInitialize", id: string, func: fun(self: gmod_door_exterior, ...))
+---@overload fun(self: gmod_door_exterior, name: "PostPlayerEnter", id: string, func: fun(self: gmod_door_exterior, ply: Player, notp: boolean?, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PostPlayerExit", id: string, func: fun(self: gmod_door_exterior, ply: Player, forced: boolean?, notp: boolean?, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PostPlayerInitialize", id: string, func: fun(self: gmod_door_exterior, ply: Player, ...))
 ---@overload fun(self: gmod_door_exterior, name: "PostRenderPortal", id: string, func: fun(self: gmod_door_exterior, portal: linked_portal_door, depth: number, ...))
