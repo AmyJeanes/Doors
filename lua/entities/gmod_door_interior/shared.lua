@@ -4,12 +4,8 @@
 ---@field exterior gmod_door_exterior
 ---@field Portal doors_portal_side?
 ---@field doorway doors_portal_side? geometry-only copy, networked to the client at player init
----@field CustomPortals table<string, doors_custom_portal>?
----@field FalseWorldWindows table<string, doors_portal_side>?
 ---@field occupants table<Player, boolean>
----@field portals doors_portal_pair
 ---@field initqueue table
----@field hiddenweapon Entity?
 
 ENT.Type = "anim"
 if WireLib then
@@ -43,6 +39,7 @@ local hooks={}
 ---@overload fun(self: gmod_door_interior, name: "PostDrawPortal", id: string, func: fun(self: gmod_door_interior, portal: linked_portal_door, ...))
 ---@overload fun(self: gmod_door_interior, name: "PostDrawTranslucentRenderables", id: string, func: fun(self: gmod_door_interior, ...))
 ---@overload fun(self: gmod_door_interior, name: "PostInitialize", id: string, func: fun(self: gmod_door_interior, ...))
+---@overload fun(self: gmod_door_interior, name: "PostPlayerEnter", id: string, func: fun(self: gmod_door_interior, ply: Player, notp: boolean?, ...))
 ---@overload fun(self: gmod_door_interior, name: "PostPlayerExit", id: string, func: fun(self: gmod_door_interior, ply: Player, forced: boolean?, notp: boolean?, ...))
 ---@overload fun(self: gmod_door_interior, name: "PostPlayerInitialize", id: string, func: fun(self: gmod_door_interior, ply: Player, ...))
 ---@overload fun(self: gmod_door_interior, name: "PostRenderPortal", id: string, func: fun(self: gmod_door_interior, portal: linked_portal_door, depth: number, ...))

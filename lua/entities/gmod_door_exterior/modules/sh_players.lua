@@ -118,6 +118,10 @@ if SERVER then
         if IsValid(self.interior) then
             self.interior:CallHook("PlayerEnter", ply, notp)
         end
+        self:CallHook("PostPlayerEnter", ply, notp)
+        if IsValid(self.interior) then
+            self.interior:CallHook("PostPlayerEnter", ply, notp)
+        end
     end
 
     ---@api

@@ -2,14 +2,11 @@
 ---@field Model string
 ---@field Fallback table?
 ---@field interior gmod_door_interior?
----@field insideof gmod_door_interior? interior this shell is parked inside, when it is nested in one
 ---@field Portal doors_portal_side?
 ---@field doorway doors_portal_side? geometry-only copy, networked to the client at player init
 ---@field occupants table<Player, boolean>
 ---@field initqueue table
 ---@field _creatorsteamid string?
----@field targeting_npcs table<NPC, true>
----@field NPCsTargetExterior boolean? NPCs will target this exterior if they see players go inside it
 
 ENT.Type = "anim"
 if WireLib then

@@ -1,5 +1,8 @@
 -- Adds an interior
 
+---@class gmod_door_exterior
+---@field insideof gmod_door_interior? interior this shell is parked inside, when it is nested in one
+
 CreateConVar("doors_interior_tries", 10000, {FCVAR_ARCHIVE, FCVAR_REPLICATED, FCVAR_NOTIFY}, "Doors - How many tries to find a valid interior placement")
 
 if SERVER then

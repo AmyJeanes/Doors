@@ -23,6 +23,11 @@
 ---@field exterior linked_portal_door?
 ---@field interior linked_portal_door?
 
+---@class gmod_door_interior
+---@field CustomPortals table<string, doors_custom_portal>?
+---@field FalseWorldWindows table<string, doors_portal_side>?
+---@field portals doors_portal_pair
+
 ---@param p doors_portal_side?
 local function writeDoorway(p)
     net.WriteBool(p ~= nil)

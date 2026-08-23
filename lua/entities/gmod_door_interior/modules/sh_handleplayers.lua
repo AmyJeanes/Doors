@@ -6,6 +6,7 @@
 ---@field _exitboxmax Vector
 ---@field _lpiframe integer?
 ---@field _lpi boolean
+---@field hiddenweapon Entity?
 
 ---@api
 ---@param pos Vector
