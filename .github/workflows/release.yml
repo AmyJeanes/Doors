@@ -56,7 +56,7 @@ jobs:
     name: Publish to workshop
     needs: resolve
     if: needs.resolve.outputs.skip != 'true'
-    uses: AmyJeanes/gmod-addon-tools/.github/workflows/publish-workshop.yml@3f5e394ee7d395ecf06091fba4a59ba1c2f6481b # v0.32.2
+    uses: AmyJeanes/gmod-addon-tools/.github/workflows/publish-workshop.yml@23e2f08fd28cb99f3c431cbc682b75a1674e1130 # v0.32.3
     with:
       addon: "Doors"
       workshop_id: "499280258"
