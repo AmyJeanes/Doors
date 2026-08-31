@@ -197,6 +197,7 @@ if CLIENT then
         return function(self, flags)
             local interior = rec.interior
             if not cordonShouldDraw(interior, self) then return end
+            -- Sleeping props may look lighter from cached static lighting; keeping them awake is too costly.
             interior:CallHook("PreDrawCordonProp", self, flags)
             drawBase(self, flags, rec)
             interior:CallHook("PostDrawCordonProp", self, flags)
