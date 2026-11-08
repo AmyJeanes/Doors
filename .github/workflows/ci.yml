@@ -39,7 +39,7 @@ jobs:
         with:
           repository: AmyJeanes/gmod-addon-tools
           # renovate: datasource=github-tags depName=AmyJeanes/gmod-addon-tools
-          ref: v0.33.4
+          ref: v0.33.5
           path: gmod-addon-tools
 
       - name: Run glua_check
@@ -76,7 +76,7 @@ jobs:
         with:
           repository: AmyJeanes/gmod-addon-tools
           # renovate: datasource=github-tags depName=AmyJeanes/gmod-addon-tools
-          ref: v0.33.4
+          ref: v0.33.5
           path: gmod-addon-tools
 
       - name: Run typing check
@@ -92,7 +92,7 @@ jobs:
     concurrency:
       group: doors-beta-publish
       cancel-in-progress: false
-    uses: AmyJeanes/gmod-addon-tools/.github/workflows/publish-workshop.yml@26a1c8d86d14adffae6b59660d1a9512be35ee80 # v0.33.4
+    uses: AmyJeanes/gmod-addon-tools/.github/workflows/publish-workshop.yml@e89546cfe1c693ae7e0cd1ae82786d889b300470 # v0.33.5
     with:
       addon: "Doors (Beta)"
       workshop_id: ${{ vars.BETA_WORKSHOP_ID }}
